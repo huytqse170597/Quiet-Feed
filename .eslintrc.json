@@ -1,0 +1,31 @@
+{
+  "env": {
+    "browser": true,
+    "es2022": true,
+    "webextensions": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022
+  },
+  "rules": {
+    "no-unused-vars": ["error", { "args": "after-used", "ignoreRestSiblings": true }],
+    "no-undef": "error",
+    "eqeqeq": ["error", "always"],
+    "no-var": "error",
+    "prefer-const": "error",
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error"
+  },
+  "overrides": [
+    {
+      "files": ["tests/**/*.js"],
+      "env": { "node": true, "browser": false },
+      "globals": { "globalThis": "readonly" }
+    },
+    {
+      "files": ["src/background.js"],
+      "env": { "browser": false, "serviceworker": true, "webextensions": true }
+    }
+  ]
+}

@@ -118,11 +118,24 @@
     return null;
   }
 
+  function matchesCustomRules(text, rules) {
+    if (!Array.isArray(rules) || rules.length === 0) return false;
+    const normalized = normalizeText(text).slice(0, 2400);
+    return rules.some((rule) => {
+      if (!rule || typeof rule !== "object") return false;
+      if (rule.type === "regex") {
+        try { return new RegExp(rule.pattern, "i").test(normalized); } catch { return false; }
+      }
+      return normalized.includes(normalizeText(rule.pattern || ""));
+    });
+  }
+
   const api = Object.freeze({
     PHRASES,
     normalizeText,
     includesPhrase,
     classifyFeedUnit,
+    matchesCustomRules,
   });
 
   global.QuietFeedRules = api;

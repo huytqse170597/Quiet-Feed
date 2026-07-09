@@ -40,6 +40,7 @@ const defaults = {
 test("default configuration enables only requested core filters", () => {
   assert.deepEqual(shared.DEFAULT_SETTINGS, {
     cleanMode: false,
+    showIndicator: true,
     removeReels: true,
     allowFriendsReels: false,
     removeSponsored: true,
@@ -128,6 +129,15 @@ test("keeps ordinary posts", () => {
   );
 });
 
+test("custom rules match keywords and regex patterns", () => {
+  assert.equal(rules.matchesCustomRules("Buy this product now!", [{ type: "keyword", pattern: "buy this" }]), true);
+  assert.equal(rules.matchesCustomRules("Nothing here", [{ type: "keyword", pattern: "buy this" }]), false);
+  assert.equal(rules.matchesCustomRules("Order #12345 shipped", [{ type: "regex", pattern: "order.*\\d+" }]), true);
+  assert.equal(rules.matchesCustomRules("Normal post", [{ type: "regex", pattern: "order.*\\d+" }]), false);
+  assert.equal(rules.matchesCustomRules("anything", []), false);
+  assert.equal(rules.matchesCustomRules("anything", null), false);
+});
+
 test("manifest references existing local resources", () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
   const resources = [
@@ -159,6 +169,27 @@ test("all client message types have background handlers", () => {
     [...background.matchAll(/case\s+["'](QF_[A-Z_]+)["']/g)].map((match) => match[1]),
   );
   for (const type of sent) assert.equal(handled.has(type), true, `No handler for ${type}`);
+});
+
+test("custom rules apply in the React hook engine, not only the DOM fallback", () => {
+  const pageHook = fs.readFileSync(path.join(root, "src", "page-hook.js"), "utf8");
+  const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+  // Rules ride the QFP_SETTINGS relay into MAIN world and are matched there.
+  assert.equal(content.includes("QFP_SETTINGS\", settings, pausedUntil, customRules"), true);
+  assert.equal(pageHook.includes("customRules"), true);
+  assert.equal(pageHook.includes("matchesCustomRules"), true);
+  assert.equal(pageHook.includes('removed(content, "custom"'), true);
+  // filter-rules.js (single source of matchesCustomRules) must load in the MAIN
+  // page-hook content-script entry, before page-hook.js.
+  const mainHook = manifest.content_scripts.find(
+    (entry) => entry.world === "MAIN" && entry.js.includes("src/page-hook.js"),
+  );
+  assert.equal(mainHook.js.includes("src/filter-rules.js"), true);
+  assert.equal(
+    mainHook.js.indexOf("src/filter-rules.js") < mainHook.js.indexOf("src/page-hook.js"),
+    true,
+  );
 });
 
 test("page hook and isolated bridge use matching contracts", () => {
@@ -286,6 +317,7 @@ test("UI scripts reference existing HTML controls", () => {
 test("popup exposes every setting through accessible category tabs", () => {
   const popup = fs.readFileSync(path.join(root, "src", "popup", "popup.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src", "popup", "popup.html"), "utf8");
+  const uiComponents = fs.readFileSync(path.join(root, "src", "shared", "ui-components.js"), "utf8");
   assert.equal(html.includes('role="tablist"'), true);
   assert.equal(html.includes('data-tab="feed"'), true);
   assert.equal(html.includes('data-tab="distractions"'), true);
@@ -297,7 +329,7 @@ test("popup exposes every setting through accessible category tabs", () => {
   assert.equal(popup.includes("unknown quiet feed message"), true);
   assert.equal(popup.includes("STORAGE_KEYS.popupTab"), true);
   assert.equal(popup.includes("pendingKeys.add(key)"), true);
-  assert.equal(popup.includes('event.target.closest("label, input, button")'), true);
+  assert.equal(uiComponents.includes('event.target.closest("label, input, button")'), true);
 });
 
 test("DOM fallback scans added subtrees instead of rescanning the document", () => {
@@ -355,6 +387,83 @@ test("legacy runtime and readable page hook share module targets", () => {
     assert.equal(pageHook.includes(readableTarget), true, `Readable hook missing ${readableTarget}`);
   }
   assert.equal(runtime.includes(".react|quiet-feed"), true);
+});
+
+test("createLogger returns structured logger with correct methods", () => {
+  const logger = shared.createLogger("test");
+  assert.equal(typeof logger.debug, "function");
+  assert.equal(typeof logger.info, "function");
+  assert.equal(typeof logger.warn, "function");
+  assert.equal(typeof logger.error, "function");
+  const anonLogger = shared.createLogger();
+  assert.equal(typeof anonLogger.info, "function");
+});
+
+test("pause is honored by both filter engines", () => {
+  const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
+  const pageHook = fs.readFileSync(path.join(root, "src", "page-hook.js"), "utf8");
+  // Pause must reach the primary React hook engine, not only the DOM fallback.
+  assert.equal(content.includes("pausedUntil"), true);
+  assert.equal(content.match(/QFP_SETTINGS", settings, pausedUntil/) !== null, true);
+  assert.equal(pageHook.includes("pausedUntil"), true);
+  assert.equal(pageHook.includes("Date.now() < pausedUntil"), true);
+});
+
+test("schema version is 2", () => {
+  assert.equal(shared.SCHEMA_VERSION, 2);
+});
+
+test("QF_SET_FILTER_STATUS handler exists in background", () => {
+  const background = fs.readFileSync(path.join(root, "src", "background.js"), "utf8");
+  assert.equal(background.includes('"QF_SET_FILTER_STATUS"'), true);
+});
+
+test("content.js sends QF_SET_FILTER_STATUS for both modes", () => {
+  const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
+  assert.equal(content.includes('status: "advanced"'), true);
+  assert.equal(content.includes('status: "fallback"'), true);
+});
+
+test("DOM fallback uses IntersectionObserver", () => {
+  const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
+  assert.equal(content.includes("new IntersectionObserver"), true);
+  assert.equal(content.includes("intersectionObserver.unobserve"), true);
+});
+
+test("DOM fallback starts periodic prune and stops on disconnect", () => {
+  const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
+  assert.equal(content.includes("setInterval"), true);
+  assert.equal(content.includes("clearInterval(pruneTimer)"), true);
+});
+
+test("filter log entries are serialized through the background worker", () => {
+  const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
+  const background = fs.readFileSync(path.join(root, "src", "background.js"), "utf8");
+  const options = fs.readFileSync(path.join(root, "src", "options", "options.js"), "utf8");
+  const optionsHtml = fs.readFileSync(path.join(root, "src", "options", "options.html"), "utf8");
+  // Content buffers entries and hands them to the serialized QF_INCREMENT_STATS path;
+  // only the background worker writes quietFeedLog, avoiding cross-tab lost writes.
+  assert.equal(content.includes("appendFilterLog"), true);
+  assert.equal(content.includes("chrome.storage.local.set({ quietFeedLog"), false);
+  assert.equal(background.includes("quietFeedLog"), true);
+  assert.equal(background.includes("runStorageMutation"), true);
+  assert.equal(options.includes("renderFilterLog"), true);
+  assert.equal(options.includes("clearFilterLog"), true);
+  assert.equal(optionsHtml.includes('id="filter-log"'), true);
+  assert.equal(optionsHtml.includes('id="clear-log"'), true);
+});
+
+test("feature rows support keyboard activation (Enter/Space)", () => {
+  const uiComponents = fs.readFileSync(path.join(root, "src", "shared", "ui-components.js"), "utf8");
+  assert.equal(uiComponents.includes('event.key === "Enter"'), true);
+  assert.equal(uiComponents.includes('event.key === " "'), true);
+  assert.equal(uiComponents.includes('tabindex'), true);
+});
+
+test("high-contrast forced-colors support exists in theme.css", () => {
+  const theme = fs.readFileSync(path.join(root, "src", "shared", "theme.css"), "utf8");
+  assert.equal(theme.includes("forced-colors: active"), true);
+  assert.equal(theme.includes("forced-color-adjust"), true);
 });
 
 test("source contains no inherited product or store integration", () => {

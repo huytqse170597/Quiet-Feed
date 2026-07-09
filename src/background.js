@@ -13,9 +13,36 @@ const {
   sanitizeFeatureChanges,
   isFacebookUrl,
   createSerialExecutor,
+  createLogger,
 } = QuietFeed;
 
+const log = createLogger("bg");
+
 const runStorageMutation = createSerialExecutor();
+
+let lastFilterStatus;
+
+const LOG_CATEGORIES = new Set(["reels", "suggested", "sponsored", "custom"]);
+const MAX_LOG_ENTRIES = 100;
+
+function sanitizeLogEntries(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        LOG_CATEGORIES.has(entry.category) &&
+        typeof entry.text === "string",
+    )
+    .map((entry) => ({
+      ts: Number(entry.ts) || Date.now(),
+      category: entry.category,
+      text: String(entry.text).slice(0, 120),
+      url: typeof entry.url === "string" ? entry.url.slice(0, 300) : null,
+      author: typeof entry.author === "string" ? entry.author.slice(0, 80) : null,
+    }));
+}
 
 function ensureStorage() {
   return runStorageMutation(async () => {
@@ -73,16 +100,25 @@ function setFeatures(value) {
   });
 }
 
-function incrementStats(delta) {
+function incrementStats(delta, logEntries) {
+  const entries = sanitizeLogEntries(logEntries);
   return runStorageMutation(async () => {
-    const { stats } = await getState();
+    const stored = await chrome.storage.local.get([STORAGE_KEYS.stats, "quietFeedLog"]);
+    const stats = mergeStats(stored[STORAGE_KEYS.stats]);
     for (const key of Object.keys(DEFAULT_STATS)) {
       const increment = Number(delta?.[key]);
       if (Number.isFinite(increment) && increment > 0) {
         stats[key] += Math.min(Math.floor(increment), 1000);
       }
     }
-    await chrome.storage.local.set({ [STORAGE_KEYS.stats]: stats });
+    const writes = { [STORAGE_KEYS.stats]: stats };
+    if (entries.length > 0) {
+      const existing = Array.isArray(stored.quietFeedLog) ? stored.quietFeedLog : [];
+      const nextLog = existing.concat(entries);
+      if (nextLog.length > MAX_LOG_ENTRIES) nextLog.splice(0, nextLog.length - MAX_LOG_ENTRIES);
+      writes.quietFeedLog = nextLog;
+    }
+    await chrome.storage.local.set(writes);
     return stats;
   });
 }
@@ -115,9 +151,12 @@ function importState(value) {
   });
 }
 
-async function updateBadge(stats) {
+async function updateBadge(stats, status) {
+  if (status !== undefined) lastFilterStatus = status;
+  const effective = status !== undefined ? status : lastFilterStatus;
   const total = Object.values(stats).reduce((sum, value) => sum + value, 0);
-  await chrome.action.setBadgeBackgroundColor({ color: "#0099ff" });
+  const color = effective === "advanced" ? "#42b72a" : effective === "fallback" ? "#2374e1" : "#0099ff";
+  await chrome.action.setBadgeBackgroundColor({ color });
   await chrome.action.setBadgeText({ text: total > 0 ? compactNumber(total) : "" });
 }
 
@@ -169,23 +208,41 @@ async function getFilterHealth() {
   return { status: "waiting", label: "Filters starting…", tabCount: tabs.length };
 }
 
+function ensureSessionAccess() {
+  return chrome.storage.session
+    .setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
+    .catch(() => {});
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  ensureStorage().catch(console.error);
+  ensureSessionAccess();
+  ensureStorage().catch(log.error);
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  ensureStorage().catch(console.error);
+  ensureSessionAccess();
+  ensureStorage().catch(log.error);
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === "toggle-clean-mode") {
+    runStorageMutation(async () => {
+      const { settings } = await getState();
+      settings.cleanMode = !settings.cleanMode;
+      await chrome.storage.local.set({ [STORAGE_KEYS.settings]: settings });
+    }).catch(log.error);
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || !changes[STORAGE_KEYS.stats]) return;
-  updateBadge(mergeStats(changes[STORAGE_KEYS.stats].newValue)).catch(console.error);
+  updateBadge(mergeStats(changes[STORAGE_KEYS.stats].newValue)).catch(log.error);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const task = handleMessage(message, sender);
   task.then(sendResponse).catch((error) => {
-    console.error("Quiet Feed message failed", error);
+    log.error("Quiet Feed message failed", error);
     sendResponse({ ok: false, error: error.message });
   });
   return true;
@@ -203,7 +260,7 @@ async function handleMessage(message, sender) {
       if (!sender.tab || !isFacebookUrl(sender.tab.url || "")) {
         throw new Error("Counter updates are accepted only from Facebook tabs.");
       }
-      return { ok: true, stats: await incrementStats(message.delta) };
+      return { ok: true, stats: await incrementStats(message.delta, message.entries) };
     case "QF_RESET_STATS":
       return { ok: true, stats: await resetStats() };
     case "QF_RESET_SETTINGS":
@@ -217,9 +274,15 @@ async function handleMessage(message, sender) {
     case "QF_OPEN_OPTIONS":
       await chrome.runtime.openOptionsPage();
       return { ok: true };
+    case "QF_SET_FILTER_STATUS": {
+      const stored = await chrome.storage.local.get(STORAGE_KEYS.stats);
+      await updateBadge(mergeStats(stored[STORAGE_KEYS.stats]), message.status);
+      return { ok: true };
+    }
     default:
       throw new Error("Unknown Quiet Feed message");
   }
 }
 
-ensureStorage().catch(console.error);
+ensureSessionAccess();
+ensureStorage().catch(log.error);

@@ -12,6 +12,7 @@
       <div class="header__inner">
         <img src="../../icons/icon-48.png" alt="">
         <div><strong>Quiet Feed</strong><span id="version"></span></div>
+        <div id="theme-toggle-mount" style="margin-left:auto"></div>
       </div>
     </header>
 
@@ -19,9 +20,9 @@
       <section class="hero">
         <div class="hero__copy">
         <span class="eyebrow">Settings</span>
-        <h1>A quieter<br>Facebook feed.</h1>
-        <p>Every setting stays on this device. Tune out the noise, keep what matters, and get back to your feed.</p>
-        <div class="filter-health" id="filter-health" data-status="waiting" role="status">
+        <h1>Quiet Feed</h1>
+        <p>Every setting stays on this device. No accounts, no servers.</p>
+        <div class="filter-health" id="filter-health" data-status="waiting" role="status" aria-live="polite">
           <span class="filter-health__dot" aria-hidden="true"></span>
           <span id="filter-health-label">Checking filter status…</span>
           <button class="filter-health__action" id="health-reload" type="button" hidden>Reload Facebook</button>
@@ -46,6 +47,7 @@
           <div><span>Reels</span><strong id="stat-reels">0</strong></div>
           <div><span>Suggested</span><strong id="stat-suggested">0</strong></div>
           <div><span>Sponsored</span><strong id="stat-sponsored">0</strong></div>
+          <div><span>Custom</span><strong id="stat-custom">0</strong></div>
         </div>
       </section>
 
@@ -55,8 +57,18 @@
       </section>
 
       <section class="panel section" aria-labelledby="distractions-heading">
-        <div class="section__header"><div><span class="eyebrow">Filters</span><h2 id="distractions-heading">Other distractions</h2></div></div>
+        <div class="section__header"><div><span class="eyebrow">Filters</span><h2 id="distractions-heading">Distractions</h2></div></div>
         <div class="feature-list" id="distraction-features"></div>
+      </section>
+
+      <section class="panel section" aria-labelledby="custom-heading">
+        <div class="section__header"><div><span class="eyebrow">Advanced</span><h2 id="custom-heading">Custom filters</h2></div></div>
+        <p class="section__description">Hide posts containing specific words or regex patterns.</p>
+        <div class="custom-rules" id="custom-rules-list"></div>
+        <form class="custom-rules__form" id="add-rule-form">
+          <input type="text" id="new-rule-input" placeholder="Keyword or /regex/" required>
+          <button class="button button--primary" type="submit">Add rule</button>
+        </form>
       </section>
 
       <section class="panel section" aria-labelledby="data-heading">
@@ -66,6 +78,15 @@
           <label class="button file-button">Import settings<input id="import-settings" type="file" accept="application/json"></label>
           <button class="button" id="reset-settings" type="button">Restore defaults</button>
         </div>
+      </section>
+
+      <section class="panel section" aria-labelledby="log-heading">
+        <div class="section__header">
+          <div><span class="eyebrow">Activity</span><h2 id="log-heading">Filter log</h2></div>
+          <button class="button" id="clear-log" type="button">Clear log</button>
+        </div>
+        <p class="section__description">Last 100 items filtered during this session. Stored locally only.</p>
+        <div class="filter-log" id="filter-log" role="log" aria-live="polite" aria-label="Filter log"></div>
       </section>
     </main>
 
@@ -81,6 +102,7 @@
       </form>
     </dialog>
     <script src="../shared/features.js"></script>
+    <script src="../shared/ui-components.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

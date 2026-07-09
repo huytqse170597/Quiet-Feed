@@ -3,6 +3,7 @@
 
   const settings = {
     cleanMode: false,
+    showIndicator: true,
     removeReels: true,
     allowFriendsReels: false,
     removeSponsored: true,
@@ -15,7 +16,7 @@
     removeBirthdays: false,
     removeNotifications: false,
   };
-  const stats = { reels: 12, suggested: 3, sponsored: 8 };
+  const stats = { reels: 12, suggested: 3, sponsored: 8, custom: 2 };
   const store = { quietFeedSettings: settings, quietFeedStats: stats };
   const messages = [];
   const storageListeners = [];
@@ -59,7 +60,7 @@
 
   window.chrome = {
     runtime: {
-      getManifest: () => ({ version: "test" }),
+      getManifest: () => ({ version: "2.1.0" }),
       sendMessage,
     },
     storage: {

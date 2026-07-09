@@ -2,7 +2,7 @@
   "use strict";
 
   const { STORAGE_KEYS, mergeSettings, pruneDisconnectedEntries } = QuietFeed;
-  const { PHRASES, includesPhrase, classifyFeedUnit } = QuietFeedRules;
+  const { PHRASES, includesPhrase, classifyFeedUnit, matchesCustomRules } = QuietFeedRules;
 
   const FEED_UNIT_SELECTOR = [
     'div[role="article"]',
@@ -13,42 +13,72 @@
   const RIGHT_RAIL_SELECTOR = '[data-pagelet*="RightRail"], [role="complementary"]';
   const NOTIFICATION_SELECTOR =
     '[role="status"], [data-pagelet*="Toast"], [data-visualcompletion="ignore-dynamic"] [role="alert"]';
+  const POST_LINK_SELECTOR =
+    'a[href*="/posts/"], a[href*="story_fbid="], a[href*="/reel/"], a[href*="/videos/"]';
+  const POST_AUTHOR_SELECTOR = 'h2 a[role="link"], h3 a[role="link"], strong a[role="link"]';
 
   const hiddenElements = new Map();
   const countedElements = new WeakSet();
   const revealedItemKeys = new Set();
   const pendingScanRoots = new Set();
-  const pendingCounts = { reels: 0, suggested: 0, sponsored: 0 };
+  const pendingCounts = { reels: 0, suggested: 0, sponsored: 0, custom: 0 };
+  const pendingLogEntries = [];
   let settings = null;
+  let customRules = [];
   let scanTimer = null;
   let countTimer = null;
   let fallbackTimer = null;
+  let pruneTimer = null;
+  let intersectionObserver = null;
   let observer = null;
+  let storiesObserver = null;
+  let storiesCheckTimer = null;
   let hookActive = false;
   let fallbackActive = false;
+  let debugMode = false;
+  let pausedUntil = 0;
+  let indicatorEl = null;
 
   injectStyle();
   window.addEventListener("message", receivePageMessage);
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "QF_GET_FILTER_STATUS") return false;
-    sendResponse({
-      status: hookActive ? "advanced" : fallbackActive ? "fallback" : "waiting",
-    });
+    sendResponse({ status: getFilterStatus() });
     return false;
   });
   initialize().catch((error) => console.error("Quiet Feed failed to start", error));
 
+  function getFilterStatus() {
+    return hookActive ? "advanced" : fallbackActive ? "fallback" : "waiting";
+  }
+
   async function initialize() {
-    const stored = await chrome.storage.local.get(STORAGE_KEYS.settings);
+    const stored = await chrome.storage.local.get([STORAGE_KEYS.settings, "quietFeedDebug", "quietFeedCustomRules", "quietFeedPausedUntil"]);
     settings = mergeSettings(stored[STORAGE_KEYS.settings]);
+    debugMode = stored.quietFeedDebug === true;
+    customRules = Array.isArray(stored.quietFeedCustomRules) ? stored.quietFeedCustomRules : [];
+    pausedUntil = Number(stored.quietFeedPausedUntil) || 0;
+    loadRevealedKeys();
     postSettingsToPage();
+    updateIndicator();
     fallbackTimer = setTimeout(startDomFallback, 4000);
 
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== "local" || !changes[STORAGE_KEYS.settings]) return;
-      settings = mergeSettings(changes[STORAGE_KEYS.settings].newValue);
-      postSettingsToPage();
-      if (fallbackActive) {
+      if (areaName !== "local") return;
+      if (changes[STORAGE_KEYS.settings]) {
+        settings = mergeSettings(changes[STORAGE_KEYS.settings].newValue);
+        postSettingsToPage();
+        updateIndicator();
+      }
+      if (changes.quietFeedCustomRules) {
+        customRules = Array.isArray(changes.quietFeedCustomRules.newValue) ? changes.quietFeedCustomRules.newValue : [];
+        postSettingsToPage();
+      }
+      if (changes.quietFeedPausedUntil) {
+        pausedUntil = Number(changes.quietFeedPausedUntil.newValue) || 0;
+        postSettingsToPage();
+      }
+      if ((changes[STORAGE_KEYS.settings] || changes.quietFeedCustomRules || changes.quietFeedPausedUntil) && fallbackActive) {
         restoreAll();
         scheduleFullScan();
       }
@@ -67,15 +97,21 @@
       hookActive = true;
       clearTimeout(fallbackTimer);
       stopDomFallback();
+      startStoriesSafetyNet();
+      updateIndicator();
+      try { chrome.runtime.sendMessage({ type: "QF_SET_FILTER_STATUS", status: "advanced" }).catch(() => {}); } catch (_) {}
       return;
     }
 
     if (event.data.type === "QFP_COUNTS") {
       const delta = sanitizeDelta(event.data.delta);
-      if (Object.values(delta).some(Boolean)) {
-        chrome.runtime
-          .sendMessage({ type: "QF_INCREMENT_STATS", delta })
-          .catch((error) => console.debug("Quiet Feed counter bridge failed", error));
+      const entries = sanitizeLogEntries(event.data.entries);
+      if (Object.values(delta).some(Boolean) || entries.length > 0) {
+        try {
+          chrome.runtime
+            .sendMessage({ type: "QF_INCREMENT_STATS", delta, entries })
+            .catch((error) => console.debug("Quiet Feed counter bridge failed", error));
+        } catch (_) {}
       }
     }
   }
@@ -83,7 +119,7 @@
   function postSettingsToPage() {
     if (!settings) return;
     window.postMessage(
-      { source: "quiet-feed-extension", type: "QFP_SETTINGS", settings },
+      { source: "quiet-feed-extension", type: "QFP_SETTINGS", settings, pausedUntil, customRules },
       location.origin,
     );
   }
@@ -100,6 +136,15 @@
   function startDomFallback() {
     if (hookActive || fallbackActive) return;
     fallbackActive = true;
+    updateIndicator();
+    intersectionObserver = new IntersectionObserver((entries) => {
+      if (isPaused()) return;
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        intersectionObserver.unobserve(entry.target);
+        processFeedUnit(entry.target);
+      });
+    }, { rootMargin: "200px" });
     scanDocument();
     observer = new MutationObserver(handleMutations);
     observer.observe(document.documentElement, {
@@ -109,7 +154,33 @@
       attributeFilter: ["role", "aria-label", "data-pagelet"],
       characterData: true,
     });
+    pruneTimer = setInterval(() => {
+      pruneDisconnectedEntries(hiddenElements, (placeholder) => placeholder?.remove());
+    }, 30000);
+    showFallbackToast();
+    try { chrome.runtime.sendMessage({ type: "QF_SET_FILTER_STATUS", status: "fallback" }).catch(() => {}); } catch (_) {}
     console.info("Quiet Feed: Facebook hooks unavailable; using DOM fallback filters.");
+  }
+
+  // The React hook engine only intercepts a component on its render calls; a
+  // widget that renders once near the top of the page (the stories tray) can
+  // render before the hook is wired up and never get a second chance. This
+  // small always-on watcher backstops that race with a plain DOM hide, same
+  // as the fallback engine would do, but running alongside the hook engine
+  // instead of only when the hook engine is absent.
+  function startStoriesSafetyNet() {
+    if (storiesObserver) return;
+    ensureStoriesHidden();
+    storiesObserver = new MutationObserver(() => {
+      clearTimeout(storiesCheckTimer);
+      storiesCheckTimer = setTimeout(ensureStoriesHidden, 220);
+    });
+    storiesObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  function ensureStoriesHidden() {
+    if (!settings?.removeStories || isPaused()) return;
+    processStories(document);
   }
 
   function stopDomFallback() {
@@ -117,7 +188,11 @@
     fallbackActive = false;
     observer?.disconnect();
     observer = null;
+    intersectionObserver?.disconnect();
+    intersectionObserver = null;
     clearTimeout(scanTimer);
+    clearInterval(pruneTimer);
+    pruneTimer = null;
     pendingScanRoots.clear();
     restoreAll();
   }
@@ -160,10 +235,15 @@
   }
 
   function scanRoot(root) {
+    if (isPaused()) return;
     selectWithin(root, FEED_UNIT_SELECTOR).forEach(processFeedUnit);
     processStories(root);
     processRightRail(root);
     processNotifications(root);
+  }
+
+  function isPaused() {
+    return pausedUntil > 0 && Date.now() < pausedUntil;
   }
 
   function selectWithin(root, selector) {
@@ -187,10 +267,19 @@
       element.dataset.qfAllowed = "true";
       return;
     }
+
+    const rect = element.getBoundingClientRect();
+    const offScreen = rect.bottom < -200 || rect.top > window.innerHeight + 200;
+    if (offScreen && intersectionObserver && !hiddenElements.has(element)) {
+      intersectionObserver.observe(element);
+      return;
+    }
+
     const links = Array.from(element.querySelectorAll('a[href*="/reel/"]'));
+    const text = element.innerText || element.textContent || "";
     const category = classifyFeedUnit(
       {
-        text: element.innerText || element.textContent || "",
+        text,
         pathname: location.pathname,
         hasReelLink: links.length > 0,
         reelLinkCount: links.length,
@@ -198,14 +287,14 @@
       settings,
     );
 
-    if (category) hideElement(element, category);
+    if (category) { hideElement(element, category); return; }
+    if (matchesCustomRules(text, customRules)) { hideElement(element, "custom"); }
   }
 
   function processStories(root) {
     if (!settings.removeStories) return;
     selectWithin(root, STORIES_SELECTOR).forEach((element) => {
-      const container = findStableContainer(element);
-      hideElement(container, null);
+      hideElement(findStableContainer(element), null);
     });
   }
 
@@ -253,12 +342,37 @@
     if (placeholder) element.insertAdjacentElement("afterend", placeholder);
     element.classList.add("qf-hidden");
     element.setAttribute("data-qf-filtered", category || "other");
+    if (debugMode) {
+      console.debug("[QuietFeed]", category || "other", element.innerText?.slice(0, 80), element);
+    }
 
     if (category && !countedElements.has(element)) {
       countedElements.add(element);
-      pendingCounts[category] += 1;
+      if (category in pendingCounts) {
+        pendingCounts[category] += 1;
+      }
+      appendFilterLog(
+        category,
+        (element.innerText || element.textContent || "").slice(0, 120),
+        extractPostMeta(element),
+      );
       scheduleCountFlush();
     }
+  }
+
+  function extractPostMeta(element) {
+    let url = null;
+    const link = element.querySelector(POST_LINK_SELECTOR);
+    if (link?.href) {
+      try {
+        url = new URL(link.href, location.href).href;
+      } catch {
+        // Ignore malformed hrefs; log entry just won't have a link.
+      }
+    }
+    const authorLink = element.querySelector(POST_AUTHOR_SELECTOR);
+    const author = authorLink ? (authorLink.textContent || "").trim().slice(0, 80) : null;
+    return { url, author: author || null };
   }
 
   function restoreAll() {
@@ -275,6 +389,12 @@
     const placeholder = document.createElement("div");
     placeholder.className = "qf-placeholder";
     placeholder.setAttribute("data-qf-placeholder", "true");
+    renderShowPrompt(placeholder, category, element);
+    return placeholder;
+  }
+
+  function renderShowPrompt(placeholder, category, element) {
+    placeholder.replaceChildren();
     const message = document.createElement("span");
     message.textContent = `Quiet Feed removed a ${category || "distracting"} item.`;
     const showButton = document.createElement("button");
@@ -282,21 +402,36 @@
     showButton.className = "qf-show-button";
     showButton.textContent = "Show this item";
     showButton.addEventListener("click", () => {
-      rememberRevealedItem(getItemKey(element));
+      const itemKey = getItemKey(element);
+      rememberRevealedItem(itemKey);
       element.dataset.qfAllowed = "true";
       element.classList.remove("qf-hidden");
       element.removeAttribute("data-qf-filtered");
       hiddenElements.delete(element);
-      placeholder.remove();
+      renderHideAgainPrompt(placeholder, category, element, itemKey);
     });
     placeholder.append(message, showButton);
-    return placeholder;
+  }
+
+  function renderHideAgainPrompt(placeholder, category, element, itemKey) {
+    placeholder.replaceChildren();
+    const message = document.createElement("span");
+    message.textContent = "Quiet Feed is showing this item.";
+    const hideButton = document.createElement("button");
+    hideButton.type = "button";
+    hideButton.className = "qf-show-button";
+    hideButton.textContent = "Hide again";
+    hideButton.addEventListener("click", () => {
+      forgetRevealedItem(itemKey);
+      delete element.dataset.qfAllowed;
+      placeholder.remove();
+      hideElement(element, category);
+    });
+    placeholder.append(message, hideButton);
   }
 
   function getItemKey(element) {
-    const link = element.querySelector(
-      'a[href*="/posts/"], a[href*="story_fbid="], a[href*="/reel/"], a[href*="/videos/"]',
-    );
+    const link = element.querySelector(POST_LINK_SELECTOR);
     if (link?.href) {
       try {
         const url = new URL(link.href, location.href);
@@ -316,6 +451,28 @@
     if (revealedItemKeys.size > 500) {
       revealedItemKeys.delete(revealedItemKeys.values().next().value);
     }
+    persistRevealedKeys();
+  }
+
+  function forgetRevealedItem(itemKey) {
+    if (!itemKey) return;
+    revealedItemKeys.delete(itemKey);
+    persistRevealedKeys();
+  }
+
+  function persistRevealedKeys() {
+    chrome.storage.session
+      .set({ quietFeedRevealed: [...revealedItemKeys] })
+      .catch(() => {});
+  }
+
+  function loadRevealedKeys() {
+    chrome.storage.session.get("quietFeedRevealed").then((stored) => {
+      const keys = stored?.quietFeedRevealed;
+      if (Array.isArray(keys)) {
+        keys.slice(-500).forEach((k) => revealedItemKeys.add(k));
+      }
+    }).catch(() => {});
   }
 
   function scheduleCountFlush() {
@@ -325,17 +482,107 @@
 
   async function flushCounts() {
     const delta = { ...pendingCounts };
-    pendingCounts.reels = 0;
-    pendingCounts.suggested = 0;
-    pendingCounts.sponsored = 0;
-    if (!Object.values(delta).some(Boolean)) return;
+    const entries = pendingLogEntries.splice(0);
+    for (const key of Object.keys(pendingCounts)) pendingCounts[key] = 0;
+    if (!Object.values(delta).some(Boolean) && entries.length === 0) return;
     try {
-      await chrome.runtime.sendMessage({ type: "QF_INCREMENT_STATS", delta });
+      await chrome.runtime.sendMessage({ type: "QF_INCREMENT_STATS", delta, entries });
     } catch (error) {
       console.debug("Quiet Feed counter update was deferred", error);
       for (const key of Object.keys(pendingCounts)) pendingCounts[key] += delta[key];
+      pendingLogEntries.unshift(...entries);
       scheduleCountFlush();
     }
+  }
+
+  function sanitizeLogEntries(value) {
+    if (!Array.isArray(value)) return [];
+    const validCategories = new Set(["reels", "suggested", "sponsored", "custom"]);
+    return value.filter(
+      (e) => e && typeof e === "object" && validCategories.has(e.category) && typeof e.text === "string"
+    ).map((e) => ({
+      ts: Number(e.ts) || Date.now(),
+      category: e.category,
+      text: String(e.text).slice(0, 120),
+      url: typeof e.url === "string" ? e.url.slice(0, 300) : null,
+      author: typeof e.author === "string" ? e.author.slice(0, 80) : null,
+    }));
+  }
+
+  function appendFilterLog(category, text, meta) {
+    appendFilterLogEntries([{
+      ts: Date.now(),
+      category,
+      text: text.trim().slice(0, 120),
+      url: meta?.url || null,
+      author: meta?.author || null,
+    }]);
+  }
+
+  function appendFilterLogEntries(newEntries) {
+    pendingLogEntries.push(...newEntries);
+    if (pendingLogEntries.length > 100) {
+      pendingLogEntries.splice(0, pendingLogEntries.length - 100);
+    }
+  }
+
+  const INDICATOR_STATUS_TITLE = {
+    advanced: "Quiet Feed: advanced filters active",
+    fallback: "Quiet Feed: basic filters active",
+    waiting: "Quiet Feed: starting…",
+  };
+
+  function ensureIndicator() {
+    if (indicatorEl) return indicatorEl;
+    indicatorEl = document.createElement("div");
+    indicatorEl.id = "qf-indicator";
+    indicatorEl.className = "qf-indicator";
+    indicatorEl.setAttribute("aria-hidden", "true");
+    const dot = document.createElement("span");
+    dot.className = "qf-indicator__dot";
+    const label = document.createElement("span");
+    label.className = "qf-indicator__label";
+    label.textContent = "Quiet Feed";
+    indicatorEl.append(dot, label);
+    (document.body || document.documentElement).appendChild(indicatorEl);
+    return indicatorEl;
+  }
+
+  function updateIndicator() {
+    if (!settings?.showIndicator) {
+      indicatorEl?.remove();
+      indicatorEl = null;
+      return;
+    }
+    const el = ensureIndicator();
+    const status = getFilterStatus();
+    el.dataset.status = status;
+    el.title = INDICATOR_STATUS_TITLE[status];
+  }
+
+  function showFallbackToast() {    const toast = document.createElement("div");
+    toast.id = "qf-fallback-toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    toast.textContent = "Quiet Feed: using basic filters (advanced hooks unavailable).";
+    Object.assign(toast.style, {
+      position: "fixed",
+      bottom: "20px",
+      right: "20px",
+      zIndex: "999999",
+      padding: "10px 14px",
+      borderRadius: "8px",
+      background: "#1877f2",
+      color: "#fff",
+      font: "13px/1.4 'Segoe UI',system-ui,sans-serif",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+      maxWidth: "320px",
+      opacity: "1",
+      transition: "opacity 600ms ease",
+    });
+    (document.body || document.documentElement).appendChild(toast);
+    setTimeout(() => { toast.style.opacity = "0"; }, 4000);
+    setTimeout(() => { toast.remove(); }, 4700);
   }
 
   function injectStyle() {
@@ -343,10 +590,18 @@
     style.id = "quiet-feed-style";
     style.textContent = [
       ".qf-hidden{display:none!important}",
-      ".qf-placeholder{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;padding:12px 16px;border:1px solid rgba(255,255,255,.1);border-radius:12px;color:#999;background:#141414;font:13px/1.3 system-ui,sans-serif}",
-      ".qf-show-button{padding:7px 11px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:#292929;color:#fff;cursor:pointer;font:600 12px/1 system-ui,sans-serif;white-space:nowrap}",
-      ".qf-show-button:hover{background:#363636}",
-      ".qf-show-button:focus-visible{outline:2px solid #0099ff;outline-offset:2px}",
+      ".qf-placeholder{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;padding:10px 14px;border-radius:8px;color:#65676b;background:#fff;border:1px solid rgba(0,0,0,0.08);font:14px/1.34 'Segoe UI',system-ui,sans-serif}",
+      "@media(prefers-color-scheme:dark){.qf-placeholder{color:#b0b3b8;background:#242526;border-color:rgba(255,255,255,0.06)}}",
+      ".qf-show-button{padding:6px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:20px;background:#f0f2f5;color:#050505;cursor:pointer;font:600 13px/1 'Segoe UI',system-ui,sans-serif;white-space:nowrap;transition:background 100ms ease}",
+      ".qf-show-button:hover{background:#e4e6eb}",
+      "@media(prefers-color-scheme:dark){.qf-show-button{border-color:rgba(255,255,255,0.1);background:#3a3b3c;color:#e4e6eb}.qf-show-button:hover{background:#4e4f50}}",
+      ".qf-show-button:focus-visible{outline:2px solid #1877f2;outline-offset:2px}",
+      "@media(prefers-color-scheme:dark){.qf-show-button:focus-visible{outline-color:#2374e1}}",
+      ".qf-indicator{position:fixed;left:20px;bottom:20px;z-index:999998;display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:20px;background:#fff;border:1px solid rgba(0,0,0,0.08);box-shadow:0 2px 8px rgba(0,0,0,0.15);font:600 12px/1 'Segoe UI',system-ui,sans-serif;color:#65676b;user-select:none;pointer-events:none}",
+      "@media(prefers-color-scheme:dark){.qf-indicator{background:#242526;border-color:rgba(255,255,255,0.06);color:#b0b3b8}}",
+      ".qf-indicator__dot{width:8px;height:8px;border-radius:50%;background:#8a8d91;flex-shrink:0}",
+      ".qf-indicator[data-status=\"advanced\"] .qf-indicator__dot{background:#42b72a}",
+      ".qf-indicator[data-status=\"fallback\"] .qf-indicator__dot{background:#f7b928}",
     ].join("");
     (document.head || document.documentElement).appendChild(style);
   }

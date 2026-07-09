@@ -8,12 +8,16 @@
     mergeSettings,
     mergeStats,
   } = QuietFeed;
+  const { createFeatureRow, createThemeToggle, loadAndApplyTheme } = QuietFeedUI;
 
   let settings = null;
   let toastTimer = null;
+  let customRules = [];
   const pendingKeys = new Set();
 
   document.querySelector("#version").textContent = `v${chrome.runtime.getManifest().version}`;
+  document.querySelector("#theme-toggle-mount").append(createThemeToggle());
+  loadAndApplyTheme();
   document.querySelector("#reset-stats").addEventListener("click", resetStats);
   document.querySelector("#reset-settings").addEventListener("click", resetSettings);
   document.querySelector("#export-settings").addEventListener("click", exportSettings);
@@ -23,6 +27,8 @@
   document.querySelector("#dismiss-reload").addEventListener("click", () => {
     document.querySelector("#reload-alert").hidden = true;
   });
+  document.querySelector("#add-rule-form").addEventListener("submit", addCustomRule);
+  document.querySelector("#clear-log").addEventListener("click", clearFilterLog);
 
   loadState().catch(showError);
 
@@ -33,14 +39,23 @@
       settings = mergeSettings(changes[STORAGE_KEYS.settings].newValue);
       renderFeatures();
     }
+    if (changes.quietFeedLog) {
+      renderFilterLog(Array.isArray(changes.quietFeedLog.newValue) ? changes.quietFeedLog.newValue : []);
+    }
   });
 
   async function loadState() {
-    const response = await chrome.runtime.sendMessage({ type: "QF_GET_STATE" });
+    const [response, stored] = await Promise.all([
+      chrome.runtime.sendMessage({ type: "QF_GET_STATE" }),
+      chrome.storage.local.get(["quietFeedCustomRules", "quietFeedLog"]),
+    ]);
     if (!response?.ok) throw new Error(response?.error || "Could not load settings");
     settings = mergeSettings(response.settings);
+    customRules = Array.isArray(stored.quietFeedCustomRules) ? stored.quietFeedCustomRules : [];
     renderStats(response.stats);
     renderFeatures();
+    renderCustomRules();
+    renderFilterLog(Array.isArray(stored.quietFeedLog) ? stored.quietFeedLog : []);
     refreshFilterHealth();
   }
 
@@ -58,48 +73,17 @@
 
   function renderFeatureGroup(selector, groups) {
     document.querySelector(selector).replaceChildren(
-      ...FEATURES.filter((feature) => groups.includes(feature.group)).map(createFeatureRow),
+      ...FEATURES.filter((feature) => groups.includes(feature.group)).map(buildFeatureRow),
     );
   }
 
-  function createFeatureRow(feature) {
-    const pending = pendingKeys.has(feature.key);
-    const disabled = (feature.dependsOn && !settings[feature.dependsOn]) || pending;
-    const row = document.createElement("div");
-    row.className = "feature-row";
-    row.setAttribute("aria-disabled", String(Boolean(disabled)));
-    row.setAttribute("aria-busy", String(pending));
-
-    const copy = document.createElement("div");
-    copy.className = "feature-copy";
-    const label = document.createElement("label");
-    label.className = "feature-label";
-    label.htmlFor = `feature-${feature.key}`;
-    label.textContent = feature.label;
-    const description = document.createElement("p");
-    description.className = "feature-description";
-    description.textContent = feature.description;
-    copy.append(label, description);
-
-    const switchLabel = document.createElement("label");
-    switchLabel.className = "switch";
-    const input = document.createElement("input");
-    input.id = `feature-${feature.key}`;
-    input.type = "checkbox";
-    input.checked = settings[feature.key];
-    input.disabled = Boolean(disabled);
-    input.setAttribute("aria-label", feature.label);
-    input.addEventListener("change", () => updateFeature(feature.key, input.checked));
-    const track = document.createElement("span");
-    track.className = "switch__track";
-    track.setAttribute("aria-hidden", "true");
-    switchLabel.append(input, track);
-    row.append(copy, switchLabel);
-    row.addEventListener("click", (event) => {
-      if (disabled || event.target.closest("label, input, button")) return;
-      input.click();
+  function buildFeatureRow(feature) {
+    return createFeatureRow(feature, {
+      settings,
+      pendingKeys,
+      onChange: updateFeature,
+      variant: "full",
     });
-    return row;
   }
 
   async function updateFeature(key, value) {
@@ -183,7 +167,8 @@
       Array.isArray(payload.settings) ||
       !payload.stats ||
       typeof payload.stats !== "object" ||
-      Array.isArray(payload.stats)
+      Array.isArray(payload.stats) ||
+      !Object.keys(payload).every((k) => ["version", "settings", "stats"].includes(k))
     ) {
       showError(new Error("That file is not a valid Quiet Feed backup."));
       return;
@@ -278,5 +263,98 @@
 
   function showError(error) {
     showToast(error.message);
+  }
+
+  function renderCustomRules() {
+    const list = document.querySelector("#custom-rules-list");
+    if (customRules.length === 0) {
+      list.innerHTML = '<p class="empty-state">No custom rules yet.</p>';
+      return;
+    }
+    list.replaceChildren(...customRules.map((rule, index) => {
+      const row = document.createElement("div");
+      row.className = "custom-rule-row";
+      const label = document.createElement("span");
+      label.className = "custom-rule-label";
+      label.textContent = rule.type === "regex" ? `/${rule.pattern}/` : rule.pattern;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button button--text custom-rule-remove";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeCustomRule(index));
+      row.append(label, remove);
+      return row;
+    }));
+  }
+
+  function addCustomRule(event) {
+    event.preventDefault();
+    const input = document.querySelector("#new-rule-input");
+    const raw = input.value.trim();
+    if (!raw) return;
+    let rule;
+    const regexMatch = raw.match(/^\/(.+)\/$/);
+    if (regexMatch) {
+      try { new RegExp(regexMatch[1], "i"); } catch { showToast("Invalid regex pattern."); return; }
+      rule = { type: "regex", pattern: regexMatch[1] };
+    } else {
+      rule = { type: "keyword", pattern: raw };
+    }
+    customRules.push(rule);
+    saveCustomRules();
+    input.value = "";
+    renderCustomRules();
+    showToast("Rule added.");
+  }
+
+  function removeCustomRule(index) {
+    customRules.splice(index, 1);
+    saveCustomRules();
+    renderCustomRules();
+    showToast("Rule removed.");
+  }
+
+  function saveCustomRules() {
+    chrome.storage.local.set({ quietFeedCustomRules: customRules }).catch(showError);
+  }
+
+  function renderFilterLog(entries) {
+    const list = document.querySelector("#filter-log");
+    if (!entries || entries.length === 0) {
+      list.innerHTML = '<p class="empty-state">No items filtered yet.</p>';
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      const row = document.createElement("div");
+      row.className = "filter-log-row";
+      const time = document.createElement("time");
+      time.className = "filter-log-time";
+      time.dateTime = new Date(entry.ts).toISOString();
+      time.textContent = new Date(entry.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const badge = document.createElement("span");
+      badge.className = `filter-log-badge filter-log-badge--${entry.category}`;
+      badge.textContent = entry.category;
+      const text = document.createElement(entry.url ? "a" : "span");
+      text.className = "filter-log-text";
+      if (entry.url) {
+        text.href = entry.url;
+        text.target = "_blank";
+        text.rel = "noopener noreferrer";
+      }
+      text.textContent = entry.author
+        ? `${entry.author}: ${entry.text || "(no text)"}`
+        : entry.text || "(no text)";
+      row.append(time, badge, text);
+      fragment.appendChild(row);
+    }
+    list.replaceChildren(fragment);
+  }
+
+  function clearFilterLog() {
+    chrome.storage.local.remove("quietFeedLog").catch(showError);
+    renderFilterLog([]);
+    showToast("Filter log cleared.");
   }
 })();

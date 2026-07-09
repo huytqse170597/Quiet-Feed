@@ -14,6 +14,7 @@
         <strong>Quiet Feed</strong>
         <span id="version">Loading…</span>
       </div>
+      <div id="theme-toggle-mount"></div>
       <button class="button button--text" id="open-options" type="button">Settings</button>
     </header>
 
@@ -24,10 +25,11 @@
           <div class="stat"><span>Reels</span><strong id="stat-reels">0</strong></div>
           <div class="stat"><span>Suggested</span><strong id="stat-suggested">0</strong></div>
           <div class="stat"><span>Sponsored</span><strong id="stat-sponsored">0</strong></div>
+          <div class="stat"><span>Custom</span><strong id="stat-custom">0</strong></div>
         </div>
       </section>
 
-      <div class="filter-health" id="filter-health" data-status="waiting" role="status">
+      <div class="filter-health" id="filter-health" data-status="waiting" role="status" aria-live="polite">
         <span class="filter-health__dot" aria-hidden="true"></span>
         <span id="filter-health-label">Checking filter status…</span>
         <button class="filter-health__action" id="health-reload" type="button" hidden>Reload</button>
@@ -35,13 +37,14 @@
 
       <div class="filter-tabs" role="tablist" aria-label="Setting categories">
         <button class="filter-tab" id="tab-feed" type="button" role="tab" aria-selected="true" aria-controls="filter-panel" data-tab="feed">Feed content</button>
-        <button class="filter-tab" id="tab-distractions" type="button" role="tab" aria-selected="false" aria-controls="filter-panel" data-tab="distractions" tabindex="-1">Other distractions</button>
+        <button class="filter-tab" id="tab-distractions" type="button" role="tab" aria-selected="false" aria-controls="filter-panel" data-tab="distractions" tabindex="-1">Distractions</button>
       </div>
 
       <div class="category-actions" aria-label="Category actions">
         <button class="button button--text" type="button" data-category-action="enable">Enable all</button>
         <button class="button button--text" type="button" data-category-action="disable">Disable all</button>
         <button class="button button--text" type="button" data-category-action="defaults">Defaults</button>
+        <button class="button button--text" type="button" id="pause-filters">Pause 5 min</button>
       </div>
 
       <section id="filter-panel" role="tabpanel" aria-labelledby="tab-feed">
@@ -58,7 +61,7 @@
       <div class="save-status" id="save-status" role="alert" hidden></div>
     </main>
 
-    <footer class="footer">Local settings · no account required</footer>
+    <footer class="footer">Local only · no account required</footer>
 
     <dialog class="confirmation-dialog" id="suggested-confirm">
       <div class="confirmation-dialog__body">
@@ -72,6 +75,7 @@
     </dialog>
 
     <script src="../shared/features.js"></script>
+    <script src="../shared/ui-components.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

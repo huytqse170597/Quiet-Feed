@@ -8,7 +8,7 @@
     popupTab: "quietFeedPopupTab",
   });
 
-  const SCHEMA_VERSION = 1;
+  const SCHEMA_VERSION = 2;
 
   const FEATURES = Object.freeze([
     {
@@ -17,6 +17,13 @@
       description: "Hide filtered cards completely instead of leaving placeholders.",
       group: "behavior",
       defaultValue: false,
+    },
+    {
+      key: "showIndicator",
+      label: "Show status indicator",
+      description: "Show a small badge on Facebook confirming Quiet Feed is active.",
+      group: "behavior",
+      defaultValue: true,
     },
     {
       key: "removeReels",
@@ -108,6 +115,7 @@
     reels: 0,
     suggested: 0,
     sponsored: 0,
+    custom: 0,
   });
 
   function mergeSettings(value) {
@@ -167,6 +175,16 @@
     };
   }
 
+  function createLogger(namespace) {
+    const prefix = `[QuietFeed${namespace ? `:${namespace}` : ""}]`;
+    return {
+      debug(...args) { console.debug(prefix, ...args); },
+      info(...args) { console.info(prefix, ...args); },
+      warn(...args) { console.warn(prefix, ...args); },
+      error(...args) { console.error(prefix, ...args); },
+    };
+  }
+
   function pruneDisconnectedEntries(entries, onPrune) {
     let pruned = 0;
     entries.forEach((value, element) => {
@@ -190,6 +208,7 @@
     sanitizeFeatureChanges,
     isFacebookUrl,
     createSerialExecutor,
+    createLogger,
     pruneDisconnectedEntries,
   });
 
