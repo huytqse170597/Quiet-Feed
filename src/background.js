@@ -1,6 +1,8 @@
 "use strict";
 
-importScripts("shared/features.js");
+// Absolute (extension-root) path: resolves regardless of where this worker lives,
+// so a path/base difference can never abort service worker registration.
+importScripts("/src/shared/features.js");
 
 const {
   STORAGE_KEYS,
@@ -209,9 +211,11 @@ async function getFilterHealth() {
 }
 
 function ensureSessionAccess() {
+  // chrome.storage.session is optional; a missing API must never abort worker
+  // registration, since it only degrades session-scoped reveal persistence.
   return chrome.storage.session
-    .setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
-    .catch(() => {});
+    ?.setAccessLevel?.({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" })
+    ?.catch(() => {});
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -224,7 +228,9 @@ chrome.runtime.onStartup.addListener(() => {
   ensureStorage().catch(log.error);
 });
 
-chrome.commands.onCommand.addListener((command) => {
+// chrome.commands only exists when the manifest declares a "commands" key, so
+// guard it: a manifest/code mismatch must never abort service worker registration.
+chrome.commands?.onCommand?.addListener((command) => {
   if (command === "toggle-clean-mode") {
     runStorageMutation(async () => {
       const { settings } = await getState();
