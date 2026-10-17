@@ -23,6 +23,7 @@
   document.querySelector("#export-settings").addEventListener("click", exportSettings);
   document.querySelector("#import-settings").addEventListener("change", importSettings);
   document.querySelector("#reload-facebook").addEventListener("click", reloadFacebook);
+  document.querySelector("#reload-privacy").addEventListener("click", reloadPrivacy);
   document.querySelector("#health-reload").addEventListener("click", reloadFacebook);
   document.querySelector("#dismiss-reload").addEventListener("click", () => {
     document.querySelector("#reload-alert").hidden = true;
@@ -62,13 +63,16 @@
   function renderStats(value) {
     const stats = mergeStats(value);
     for (const key of Object.keys(stats)) {
-      document.querySelector(`#stat-${key}`).textContent = stats[key].toLocaleString();
+      const counter = document.querySelector(`#stat-${key}`);
+      counter.textContent = stats[key].toLocaleString();
+      counter.title = counter.textContent;
     }
   }
 
   function renderFeatures() {
     renderFeatureGroup("#feed-features", ["feed", "behavior"]);
     renderFeatureGroup("#distraction-features", ["distractions"]);
+    renderFeatureGroup("#privacy-features", ["privacy"]);
   }
 
   function renderFeatureGroup(selector, groups) {
@@ -108,8 +112,12 @@
       pendingKeys.delete(key);
       renderFeatures();
     }
-    await showReloadPrompt();
-    showToast("Setting saved.");
+    if (feature?.group === "privacy") {
+      showToast("Privacy setting saved. Reload Facebook and Messenger tabs to apply it.");
+    } else {
+      await showReloadPrompt();
+      showToast("Setting saved.");
+    }
   }
 
   async function resetStats() {
@@ -232,6 +240,24 @@
     document.querySelector("#reload-alert").hidden = true;
     showToast(`Reloaded ${response.count} Facebook ${response.count === 1 ? "tab" : "tabs"}.`);
     setTimeout(refreshFilterHealth, 1200);
+  }
+
+  async function reloadPrivacy() {
+    const button = document.querySelector("#reload-privacy");
+    button.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "QF_RELOAD_PRIVACY_TABS" });
+      if (!response?.ok || !response.reloaded) {
+        throw new Error(response?.reason || response?.error || "Could not reload Facebook and Messenger");
+      }
+      showToast(response.failed
+        ? `Reloaded ${response.count} tabs. ${response.failed} could not be reloaded; try those tabs manually.`
+        : `Reloaded ${response.count} Facebook and Messenger ${response.count === 1 ? "tab" : "tabs"}.`);
+    } catch (error) {
+      showError(error);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function refreshFilterHealth() {

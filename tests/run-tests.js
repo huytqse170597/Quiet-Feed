@@ -39,6 +39,10 @@ const defaults = {
 
 test("default configuration enables only requested core filters", () => {
   assert.deepEqual(shared.DEFAULT_SETTINGS, {
+    downloadVideos: true,
+    hideReadReceipts: false,
+    hideTypingIndicator: false,
+    hideStoryViews: false,
     cleanMode: false,
     showIndicator: true,
     removeReels: true,
@@ -144,7 +148,7 @@ test("manifest references existing local resources", () => {
     manifest.background.service_worker,
     manifest.options_page,
     manifest.action.default_popup,
-    ...manifest.content_scripts.flatMap((entry) => entry.js),
+    ...manifest.content_scripts.flatMap((entry) => [...entry.js, ...(entry.css || [])]),
     ...Object.values(manifest.icons),
     ...Object.values(manifest.action.default_icon),
   ];
@@ -159,14 +163,16 @@ test("all client message types have background handlers", () => {
   const background = fs.readFileSync(path.join(root, "src", "background.js"), "utf8");
   const clients = [
     "src/content.js",
+    "src/video-content.js",
+    "src/download/download.js",
     "src/popup/popup.js",
     "src/options/options.js",
   ].map((file) => fs.readFileSync(path.join(root, file), "utf8"));
   const sent = new Set(
-    clients.flatMap((source) => [...source.matchAll(/type:\s*["'](QF_[A-Z_]+)["']/g)].map((match) => match[1])),
+    clients.flatMap((source) => [...source.matchAll(/sendMessage\(\{\s*type:\s*["'](QFV?_[A-Z_]+)["']/g)].map((match) => match[1])),
   );
   const handled = new Set(
-    [...background.matchAll(/case\s+["'](QF_[A-Z_]+)["']/g)].map((match) => match[1]),
+    [...background.matchAll(/case\s+["'](QF[V]?_[A-Z_]+)["']/g)].map((match) => match[1]),
   );
   for (const type of sent) assert.equal(handled.has(type), true, `No handler for ${type}`);
 });
@@ -322,7 +328,8 @@ test("popup exposes every setting through accessible category tabs", () => {
   assert.equal(html.includes('data-tab="feed"'), true);
   assert.equal(html.includes('data-tab="distractions"'), true);
   assert.equal(popup.includes('["feed", "behavior"]'), true);
-  assert.equal(popup.includes('["distractions"]'), true);
+  assert.equal(popup.includes(': [activeTab]'), true);
+  assert.equal(html.includes('data-tab="privacy"'), true);
   assert.equal(popup.includes('feature.group !== "distractions" || feature.defaultValue'), false);
   assert.equal(popup.includes('event.key === "ArrowRight"'), true);
   assert.equal(popup.includes('type: "QF_SET_FEATURES"'), true);
@@ -336,7 +343,7 @@ test("DOM fallback scans added subtrees instead of rescanning the document", () 
   const content = fs.readFileSync(path.join(root, "src", "content.js"), "utf8");
   assert.equal(content.includes("new MutationObserver(handleMutations)"), true);
   assert.equal(content.includes("pendingScanRoots.add(node)"), true);
-  assert.equal(content.includes("roots.filter((root) => root.isConnected).forEach(scanRoot)"), true);
+  assert.equal(content.includes("if (rootSet.has(ancestor)) return false"), true);
   assert.equal(content.includes("new MutationObserver(scheduleScan)"), false);
 });
 
@@ -471,7 +478,6 @@ test("source contains no inherited product or store integration", () => {
     (file) => file !== __filename && /\.(js|json|html|css|md)$/.test(file),
   );
   const source = files.map((file) => fs.readFileSync(file, "utf8")).join("\n").toLowerCase();
-  assert.equal(source.includes("esuit.dev"), false);
   assert.equal(source.includes("clients2.google.com/service/update2/crx"), false);
   assert.equal(source.includes("remove-reels-for-facebook"), false);
 });

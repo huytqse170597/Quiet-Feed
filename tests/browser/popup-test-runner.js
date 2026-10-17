@@ -16,14 +16,20 @@
   };
 
   try {
-    await waitFor(() => document.querySelectorAll("#feature-list .feature-row").length === 7, "Feed tab did not render");
-    check(document.querySelectorAll("#feature-list .feature-row").length === 7, "Feed tab shows all feed settings");
+    const feedFeatureCount = QuietFeed.FEATURES.filter((feature) => ["feed", "behavior"].includes(feature.group)).length;
+    await waitFor(() => document.querySelectorAll("#feature-list .feature-row").length === feedFeatureCount, "Feed tab did not render");
+    check(document.querySelectorAll("#feature-list .feature-row").length === feedFeatureCount, "Feed tab shows all feed settings");
     const infoButton = document.querySelector(".feature-info");
     const tooltip = infoButton.querySelector(".feature-tooltip");
     check(getComputedStyle(tooltip).visibility === "hidden", "Descriptions stay hidden by default");
     infoButton.focus();
     await waitFor(() => getComputedStyle(tooltip).visibility === "visible", "Tooltip did not open on focus");
     check(getComputedStyle(tooltip).visibility === "visible", "Description tooltip opens on focus");
+    const initialChecked = document.querySelector('#feature-list input').checked;
+    infoButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await wait(60);
+    check(document.querySelector('#feature-list input').checked === initialChecked,
+      "Using an info button does not toggle its feature");
     await waitFor(
       () => document.querySelector("#filter-health-label").textContent === "Advanced filters active",
       "Filter health did not render",
@@ -34,6 +40,22 @@
     await waitFor(() => document.querySelectorAll("#feature-list .feature-row").length === 5, "Distractions tab did not render");
     check(document.querySelectorAll("#feature-list .feature-row").length === 5, "Distractions tab shows all settings");
     check(window.__quietFeedTest.store.quietFeedPopupTab === "distractions", "Selected tab is remembered");
+
+    document.querySelector("#tab-privacy").click();
+    check(document.querySelectorAll("#feature-list .feature-row").length === 3, "Privacy tab shows all three controls");
+    check([...document.querySelectorAll("#feature-list input")].every((input) => !input.checked), "Privacy controls default to disabled");
+    check(!document.querySelector("#privacy-note").hidden, "Privacy limitations are visible");
+    check(document.querySelector("#pause-filters").hidden, "Feed pause is separate from privacy");
+    check(document.querySelector("#filter-panel").getAttribute("aria-labelledby") === "tab-privacy", "Privacy panel has the selected tab label");
+    document.querySelector("#feature-hideReadReceipts").click();
+    await waitFor(() => window.__quietFeedTest.settings.hideReadReceipts === true, "Privacy toggle did not save");
+    await waitFor(() => !document.querySelector("#feature-hideReadReceipts").disabled, "Privacy save did not finish");
+    check(window.__quietFeedTest.settings.removeReels, "Privacy toggle preserves feed settings");
+    check(document.querySelector("#reload-alert").hidden, "Privacy save does not offer a feed-only reload");
+    document.querySelector('[data-category-action="defaults"]').click();
+    await waitFor(() => window.__quietFeedTest.settings.hideReadReceipts === false, "Privacy defaults did not reset");
+    await waitFor(() => !document.querySelector("#feature-hideReadReceipts").disabled, "Privacy defaults save did not finish");
+    check(window.__quietFeedTest.settings.removeReels, "Privacy defaults preserve feed settings");
 
     document.querySelector("#tab-feed").click();
     const suggested = document.querySelector("#feature-removeSuggested");

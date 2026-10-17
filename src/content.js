@@ -5,7 +5,8 @@
   const { PHRASES, includesPhrase, classifyFeedUnit, matchesCustomRules } = QuietFeedRules;
 
   const FEED_UNIT_SELECTOR = [
-    'div[role="article"]',
+    '[role="article"]',
+    'article',
     '[data-pagelet^="FeedUnit"]',
     '[data-pagelet*="FeedUnit"]',
   ].join(",");
@@ -172,10 +173,13 @@
     if (storiesObserver) return;
     ensureStoriesHidden();
     storiesObserver = new MutationObserver(() => {
-      clearTimeout(storiesCheckTimer);
-      storiesCheckTimer = setTimeout(ensureStoriesHidden, 220);
+      if (storiesCheckTimer) return;
+      storiesCheckTimer = setTimeout(() => {
+        storiesCheckTimer = null;
+        ensureStoriesHidden();
+      }, 220);
     });
-    storiesObserver.observe(document.body, { childList: true, subtree: true });
+    storiesObserver.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   function ensureStoriesHidden() {
@@ -191,6 +195,7 @@
     intersectionObserver?.disconnect();
     intersectionObserver = null;
     clearTimeout(scanTimer);
+    scanTimer = null;
     clearInterval(pruneTimer);
     pruneTimer = null;
     pendingScanRoots.clear();
@@ -198,9 +203,10 @@
   }
 
   function handleMutations(records) {
+    if (settings?.showIndicator && !indicatorEl?.isConnected) updateIndicator();
     records.forEach((record) => {
       record.addedNodes.forEach((node) => {
-        if (node instanceof HTMLElement) pendingScanRoots.add(node);
+        if (node instanceof HTMLElement && !node.closest("[data-qf-placeholder], [data-qf-video-control], #qf-indicator, #qf-fallback-toast")) pendingScanRoots.add(node);
       });
       if (record.type === "attributes" && record.target instanceof HTMLElement) {
         pendingScanRoots.add(record.target);
@@ -210,7 +216,7 @@
       }
     });
     if (pendingScanRoots.size === 0) return;
-    clearTimeout(scanTimer);
+    if (scanTimer) return;
     scanTimer = setTimeout(scanPendingNodes, 220);
   }
 
@@ -221,17 +227,27 @@
   }
 
   function scanDocument() {
+    scanTimer = null;
     if (!fallbackActive || !settings || !document.body) return;
     pruneDisconnectedEntries(hiddenElements, (placeholder) => placeholder?.remove());
     scanRoot(document);
   }
 
   function scanPendingNodes() {
+    scanTimer = null;
     if (!fallbackActive || !settings || !document.body) return;
     const roots = [...pendingScanRoots];
     pendingScanRoots.clear();
     pruneDisconnectedEntries(hiddenElements, (placeholder) => placeholder?.remove());
-    roots.filter((root) => root.isConnected).forEach(scanRoot);
+    // Collapse nested mutation roots after a responsive layout rebuild.
+    const rootSet = new Set(roots);
+    roots.filter((root) => {
+      if (!root.isConnected) return false;
+      for (let ancestor = root.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        if (rootSet.has(ancestor)) return false;
+      }
+      return true;
+    }).forEach(scanRoot);
   }
 
   function scanRoot(root) {
@@ -315,23 +331,32 @@
 
   function processNotifications(root) {
     if (!settings.removeNotifications) return;
-    selectWithin(root, NOTIFICATION_SELECTOR).forEach((element) =>
-      hideElement(findStableContainer(element), null),
-    );
+    selectWithin(root, NOTIFICATION_SELECTOR).forEach((element) => {
+      if (element.closest("[data-qf-placeholder], [data-qf-video-control], #qf-fallback-toast")) return;
+      // Status regions also announce loading and navigation on mobile layouts.
+      // A generic live region is not enough evidence that this is a toast.
+      if (!element.closest('[data-pagelet*="Toast"], [data-visualcompletion="ignore-dynamic"]')) return;
+      hideElement(element, null);
+    });
   }
 
   function findStableContainer(element) {
-    return (
-      element.closest('[role="article"]') ||
-      element.closest('[data-pagelet]') ||
-      element.parentElement ||
-      element
-    );
+    const article = element.closest('[role="article"], article');
+    if (article) return article;
+    const pagelet = element.closest('[data-pagelet]');
+    // Mobile often gives only the application shell a pagelet identifier.
+    // Keep the hide local when that ancestor owns the main feed.
+    if (pagelet && !pagelet.matches('main, [role="main"], [role="feed"]') &&
+        !pagelet.querySelector('main, [role="main"], [role="feed"]')) return pagelet;
+    return element;
   }
 
   function hideElement(element, category) {
     if (
       !(element instanceof HTMLElement) ||
+      element.matches('html, body, main, [role="main"], [role="feed"], #mount_0_0') ||
+      element.querySelector('main, [role="main"], [role="feed"]') ||
+      element.matches('[aria-busy="true"], [role="progressbar"]') ||
       element.dataset.qfAllowed === "true" ||
       hiddenElements.has(element)
     ) {
@@ -533,7 +558,7 @@
   };
 
   function ensureIndicator() {
-    if (indicatorEl) return indicatorEl;
+    if (indicatorEl?.isConnected) return indicatorEl;
     indicatorEl = document.createElement("div");
     indicatorEl.id = "qf-indicator";
     indicatorEl.className = "qf-indicator";
@@ -572,11 +597,12 @@
       zIndex: "999999",
       padding: "10px 14px",
       borderRadius: "8px",
-      background: "#1877f2",
-      color: "#fff",
+      background: "var(--qf-filter-surface, #242526)",
+      color: "var(--qf-filter-secondary, #b0b3b8)",
       font: "13px/1.4 'Segoe UI',system-ui,sans-serif",
       boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-      maxWidth: "320px",
+      maxWidth: "min(320px, calc(100vw - 40px))",
+      boxSizing: "border-box",
       opacity: "1",
       transition: "opacity 600ms ease",
     });
@@ -597,6 +623,8 @@
       "@media(prefers-color-scheme:dark){.qf-show-button{border-color:rgba(255,255,255,0.1);background:#3a3b3c;color:#e4e6eb}.qf-show-button:hover{background:#4e4f50}}",
       ".qf-show-button:focus-visible{outline:2px solid #1877f2;outline-offset:2px}",
       "@media(prefers-color-scheme:dark){.qf-show-button:focus-visible{outline-color:#2374e1}}",
+      "@media(max-width:480px){.qf-placeholder{flex-wrap:wrap;gap:8px;min-width:0;padding:10px}.qf-placeholder>span{min-width:0;overflow-wrap:anywhere}}",
+      "@media(max-width:480px){.qf-indicator{left:8px;bottom:8px;padding:6px}.qf-indicator__label{display:none}}",
       ".qf-indicator{position:fixed;left:20px;bottom:20px;z-index:999998;display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:20px;background:#fff;border:1px solid rgba(0,0,0,0.08);box-shadow:0 2px 8px rgba(0,0,0,0.15);font:600 12px/1 'Segoe UI',system-ui,sans-serif;color:#65676b;user-select:none;pointer-events:none}",
       "@media(prefers-color-scheme:dark){.qf-indicator{background:#242526;border-color:rgba(255,255,255,0.06);color:#b0b3b8}}",
       ".qf-indicator__dot{width:8px;height:8px;border-radius:50%;background:#8a8d91;flex-shrink:0}",

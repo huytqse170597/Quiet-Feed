@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quiet Feed · Video download</title>
+  <link rel="stylesheet" href="../shared/theme.css">
+  <link rel="stylesheet" href="download.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header__inner">
+      <img src="../../icons/icon-48.png" width="36" height="36" alt="">
+      <div class="header__copy"><strong>Quiet Feed</strong><span>Video download</span></div>
+      <div id="theme-toggle-mount"></div>
+    </div>
+  </header>
+  <main class="layout">
+    <div class="hero">
+      <span class="eyebrow">Video download</span>
+      <h1>Preparing your video</h1>
+      <p>Video and audio are combined on your device. Keep this tab open until your download finishes.</p>
+    </div>
+    <section class="panel download-card" aria-label="Download progress">
+      <div class="download-status"><span class="status-dot" aria-hidden="true"></span><p id="status" role="status" aria-live="polite">Loading download…</p></div>
+      <progress id="progress" aria-label="Download progress"></progress>
+      <p id="filename" class="filename"></p>
+      <div class="actions">
+        <button id="cancel" class="button" type="button">Cancel</button>
+        <button id="retry" class="button button--primary" type="button" hidden>Try again</button>
+        <a id="save" class="button button--primary" hidden>Save video again</a>
+      </div>
+    </section>
+    <p class="privacy-note">Local only · no account required</p>
+  </main>
+  <script src="../shared/ui-components.js"></script>
+  <script src="download.js"></script>
+</body>
+</html>

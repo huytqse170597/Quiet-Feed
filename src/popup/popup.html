@@ -38,6 +38,7 @@
       <div class="filter-tabs" role="tablist" aria-label="Setting categories">
         <button class="filter-tab" id="tab-feed" type="button" role="tab" aria-selected="true" aria-controls="filter-panel" data-tab="feed">Feed content</button>
         <button class="filter-tab" id="tab-distractions" type="button" role="tab" aria-selected="false" aria-controls="filter-panel" data-tab="distractions" tabindex="-1">Distractions</button>
+        <button class="filter-tab" id="tab-privacy" type="button" role="tab" aria-selected="false" aria-controls="filter-panel" data-tab="privacy" tabindex="-1">Privacy</button>
       </div>
 
       <div class="category-actions" aria-label="Category actions">
@@ -48,6 +49,10 @@
       </div>
 
       <section id="filter-panel" role="tabpanel" aria-labelledby="tab-feed">
+        <div class="privacy-note" id="privacy-note" hidden>
+          <p>Best effort on Facebook and Messenger. Reload open tabs after enabling. Previously sent activity cannot be undone.</p>
+          <button class="button button--text" id="reload-privacy" type="button">Reload Facebook and Messenger</button>
+        </div>
         <div class="feature-list" id="feature-list"></div>
       </section>
 

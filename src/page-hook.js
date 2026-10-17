@@ -383,6 +383,7 @@
     React.useEffect(() => {
       const recheck = () => setHidden(enabled(settingsKey));
       settingsListeners.add(recheck);
+      recheck();
       return () => settingsListeners.delete(recheck);
     }, [settingsKey]);
     if (!hidden) return content;
@@ -394,13 +395,15 @@
   // candidate from an ordered list, re-testing all of them whenever settings
   // change instead of gating on a single flag.
   function FeedUnitGate({ candidates, content }) {
-    const pickMatch = () => candidates.find((candidate) => candidate.test()) || null;
-    const [match, setMatch] = React.useState(pickMatch);
+    const [, forceUpdate] = React.useState(0);
     React.useEffect(() => {
-      const recheck = () => setMatch(pickMatch());
+      const recheck = () => forceUpdate((value) => value + 1);
       settingsListeners.add(recheck);
       return () => settingsListeners.delete(recheck);
-    }, [candidates]);
+    }, []);
+    // Facebook reuses feed components when switching layouts or virtualizing
+    // posts. Always classify the current props, never a previous post's match.
+    const match = candidates.find((candidate) => candidate.test()) || null;
 
     if (!match) return content;
     return removed(content, match.category, match.label, match.itemKey);
@@ -416,6 +419,7 @@
       "@media(prefers-color-scheme:dark){.qf-removed-placeholder{color:#b0b3b8;background:#242526;border-color:rgba(255,255,255,0.06)}}",
       ".qf-removed-btn{padding:6px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:20px;background:#f0f2f5;color:#050505;cursor:pointer;font:600 13px/1 'Segoe UI',system-ui,sans-serif;white-space:nowrap}",
       ".qf-removed-btn:hover{background:#e4e6eb}",
+      "@media(max-width:480px){.qf-removed-placeholder{flex-wrap:wrap;gap:8px;min-width:0;padding:10px}.qf-removed-placeholder>span{min-width:0;overflow-wrap:anywhere}}",
       "@media(prefers-color-scheme:dark){.qf-removed-btn{border-color:rgba(255,255,255,0.1);background:#3a3b3c;color:#e4e6eb}.qf-removed-btn:hover{background:#4e4f50}}",
     ].join("");
     (document.head || document.documentElement).appendChild(style);

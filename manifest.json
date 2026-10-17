@@ -7,11 +7,16 @@
   "minimum_chrome_version": "111",
   "incognito": "not_allowed",
   "permissions": [
-    "storage"
+    "storage",
+    "downloads"
   ],
   "host_permissions": [
     "https://www.facebook.com/*",
-    "https://web.facebook.com/*"
+    "https://web.facebook.com/*",
+    "https://m.facebook.com/*",
+    "https://*.fbcdn.net/*",
+    "https://www.messenger.com/*",
+    "https://messenger.com/*"
   ],
   "background": {
     "service_worker": "src/background.js"
@@ -20,10 +25,15 @@
     {
       "matches": [
         "https://www.facebook.com/*",
-        "https://web.facebook.com/*"
+        "https://web.facebook.com/*",
+        "https://m.facebook.com/*",
+        "https://www.messenger.com/*",
+        "https://messenger.com/*"
       ],
       "js": [
-        "src/legacy/facebook-react-hook-runtime.js"
+        "src/legacy/facebook-react-hook-runtime.js",
+        "src/privacy-page.js",
+        "src/facebook-theme-page.js"
       ],
       "run_at": "document_start",
       "world": "MAIN"
@@ -31,19 +41,39 @@
     {
       "matches": [
         "https://www.facebook.com/*",
-        "https://web.facebook.com/*"
+        "https://web.facebook.com/*",
+        "https://m.facebook.com/*"
       ],
       "js": [
-        "src/shared/features.js",
-        "src/filter-rules.js",
-        "src/content.js"
+        "src/shared/video.js",
+        "src/video-page.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "world": "MAIN"
     },
     {
       "matches": [
         "https://www.facebook.com/*",
-        "https://web.facebook.com/*"
+        "https://web.facebook.com/*",
+        "https://m.facebook.com/*"
+      ],
+      "js": [
+        "src/shared/features.js",
+        "src/filter-rules.js",
+        "src/facebook-theme.js",
+        "src/content.js",
+        "src/video-content.js"
+      ],
+      "run_at": "document_start",
+      "css": [
+        "src/shared/feed-theme.css"
+      ]
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/*",
+        "https://web.facebook.com/*",
+        "https://m.facebook.com/*"
       ],
       "js": [
         "src/filter-rules.js",
@@ -51,6 +81,20 @@
       ],
       "run_at": "document_end",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/*",
+        "https://web.facebook.com/*",
+        "https://m.facebook.com/*",
+        "https://www.messenger.com/*",
+        "https://messenger.com/*"
+      ],
+      "js": [
+        "src/shared/features.js",
+        "src/privacy-content.js"
+      ],
+      "run_at": "document_start"
     }
   ],
   "action": {
@@ -64,13 +108,20 @@
     }
   },
   "options_page": "src/options/options.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "commands": {
     "_execute_action": {
-      "suggested_key": { "default": "Alt+Q" },
+      "suggested_key": {
+        "default": "Alt+Q"
+      },
       "description": "Open Quiet Feed popup"
     },
     "toggle-clean-mode": {
-      "suggested_key": { "default": "Alt+Shift+Q" },
+      "suggested_key": {
+        "default": "Alt+Shift+Q"
+      },
       "description": "Toggle Clean Mode on/off"
     }
   },
