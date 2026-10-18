@@ -1,16 +1,18 @@
 html {
+  /* Chrome measures this document to size the action popup. Viewport-relative
+     widths create a sizing cycle and can collapse the popup to a thin strip. */
   width: 380px;
   min-width: 380px;
+  max-height: 580px;
   overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--surface-2) transparent;
+  scrollbar-width: thin;
 }
 
 body {
   width: 100%;
-  min-width: 0;
-  max-height: 580px;
-  overflow-y: auto;
-  scrollbar-color: var(--surface-2) transparent;
-  scrollbar-width: thin;
+  min-width: 380px;
 }
 
 /* --- Header --- */
@@ -131,7 +133,7 @@ body {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--link);
   cursor: pointer;
   font: inherit;
   font-weight: 600;
@@ -157,7 +159,7 @@ body {
 
 .filter-tabs {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   padding: 3px;
   border-radius: var(--radius-card);
@@ -187,8 +189,26 @@ body {
 
 /* --- Category actions --- */
 
+.privacy-note {
+  margin: 4px 8px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.privacy-note p {
+  margin: 0 0 6px;
+}
+
+.privacy-note .button {
+  min-height: 28px;
+  padding-inline: 0;
+  font-size: inherit;
+}
+
 .category-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px;
   margin-top: -4px;
@@ -204,6 +224,7 @@ body {
 
 .feature-heading {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 6px;
 }
@@ -242,7 +263,9 @@ body {
   background: var(--surface-raised);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   color: var(--ink);
-  font: 13px/1.4 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
   font-weight: 400;
   opacity: 0;
   pointer-events: none;
@@ -299,4 +322,12 @@ body {
   color: var(--muted);
   font-size: 12px;
   text-align: center;
+}
+
+@media (max-width: 380px) {
+  .header { flex-wrap: wrap; }
+  .reload-alert { align-items: stretch; flex-direction: column; }
+  .reload-alert__actions { justify-content: flex-end; flex-wrap: wrap; }
+  .main { padding: 8px; }
+  .feature-tooltip { width: min(220px, calc(100vw - 32px)); }
 }

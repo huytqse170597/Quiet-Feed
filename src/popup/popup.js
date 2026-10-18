@@ -17,6 +17,7 @@
   document.querySelector("#theme-toggle-mount").append(createThemeToggle());
   loadAndApplyTheme();
   reloadButton.addEventListener("click", reloadFacebook);
+  document.querySelector("#reload-privacy").addEventListener("click", reloadPrivacy);
   document.querySelector("#health-reload").addEventListener("click", reloadFacebook);
   document.querySelector("#dismiss-reload").addEventListener("click", () => {
     reloadAlert.hidden = true;
@@ -50,7 +51,7 @@
       chrome.storage.local.get([STORAGE_KEYS.popupTab, "quietFeedPausedUntil"]),
     ]);
     if (!response?.ok) throw new Error(response?.error || "Could not load settings");
-    if (["feed", "distractions"].includes(stored[STORAGE_KEYS.popupTab])) {
+    if (tabButtons.some((button) => button.dataset.tab === stored[STORAGE_KEYS.popupTab])) {
       activeTab = stored[STORAGE_KEYS.popupTab];
     }
     settings = mergeSettings(response.settings);
@@ -63,14 +64,15 @@
   function renderStats(value) {
     const stats = mergeStats(value);
     for (const key of Object.keys(stats)) {
-      document.querySelector(`#stat-${key}`).textContent = stats[key].toLocaleString();
+      const counter = document.querySelector(`#stat-${key}`);
+      counter.textContent = stats[key].toLocaleString();
+      counter.title = counter.textContent;
     }
   }
 
   function renderFeatures() {
     if (!settings) return;
-    const groups = activeTab === "feed" ? ["feed", "behavior"] : ["distractions"];
-    const features = FEATURES.filter((feature) => groups.includes(feature.group));
+    const features = getActiveFeatures();
     featureList.replaceChildren(
       ...features.map(buildFeatureRow),
     );
@@ -90,7 +92,9 @@
     });
     document
       .querySelector("#filter-panel")
-      .setAttribute("aria-labelledby", activeTab === "feed" ? "tab-feed" : "tab-distractions");
+      .setAttribute("aria-labelledby", `tab-${activeTab}`);
+    document.querySelector("#privacy-note").hidden = activeTab !== "privacy";
+    document.querySelector("#pause-filters").hidden = activeTab === "privacy";
     renderFeatures();
     if (persist) {
       chrome.storage.local
@@ -141,7 +145,7 @@
       renderFeatures();
     }
     saveStatus.hidden = true;
-    await showReloadPrompt();
+    await showReloadPrompt(feature?.group === "privacy");
   }
 
   async function applyCategoryAction(action) {
@@ -176,11 +180,11 @@
       renderFeatures();
     }
     saveStatus.hidden = true;
-    await showReloadPrompt();
+    await showReloadPrompt(features.some((feature) => feature.group === "privacy"));
   }
 
   function getActiveFeatures() {
-    const groups = activeTab === "feed" ? ["feed", "behavior"] : ["distractions"];
+    const groups = activeTab === "feed" ? ["feed", "behavior"] : [activeTab];
     return FEATURES.filter((feature) => groups.includes(feature.group));
   }
 
@@ -215,7 +219,13 @@
     });
   }
 
-  async function showReloadPrompt() {
+  async function showReloadPrompt(privacy = false) {
+    if (privacy) {
+      reloadAlert.hidden = true;
+      saveStatus.hidden = false;
+      saveStatus.textContent = "Privacy setting saved. Reload Facebook and Messenger tabs to apply it.";
+      return;
+    }
     reloadAlert.hidden = false;
     const response = await chrome.runtime.sendMessage({ type: "QF_GET_FILTER_HEALTH" });
     if (!response?.ok) return;
@@ -234,6 +244,27 @@
       return showError(new Error(response?.reason || response?.error || "Could not reload Facebook"));
     }
     window.close();
+  }
+
+  async function reloadPrivacy() {
+    const button = document.querySelector("#reload-privacy");
+    button.disabled = true;
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "QF_RELOAD_PRIVACY_TABS" });
+      if (!response?.ok || !response.reloaded) {
+        throw new Error(response?.reason || response?.error || "Could not reload Facebook and Messenger");
+      }
+      if (response.failed) {
+        saveStatus.hidden = false;
+        saveStatus.textContent = `Reloaded ${response.count} tabs. ${response.failed} could not be reloaded; try those tabs manually.`;
+        return;
+      }
+      window.close();
+    } catch (error) {
+      showError(error);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function refreshFilterHealth() {

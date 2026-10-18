@@ -1,0 +1,68 @@
+/* Only Quiet Feed controls consume these tokens. facebook-theme.js synchronizes
+   Facebook's native theme scopes separately. */
+:root {
+  --qf-filter-surface: #fff;
+  --qf-filter-ink: #050505;
+  --qf-filter-secondary: #65676b;
+  --qf-filter-button: #f0f2f5;
+  --qf-filter-hover: #e4e6eb;
+  --qf-filter-line: rgba(0, 0, 0, .15);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-qf-theme="light"]) {
+    --qf-filter-surface: #242526;
+    --qf-filter-ink: #e4e6eb;
+    --qf-filter-secondary: #b0b3b8;
+    --qf-filter-button: #3a3b3c;
+    --qf-filter-hover: #4e4f50;
+    --qf-filter-line: rgba(255, 255, 255, .15);
+  }
+}
+:root[data-qf-theme="dark"] {
+  --qf-filter-surface: #242526;
+  --qf-filter-ink: #e4e6eb;
+  --qf-filter-secondary: #b0b3b8;
+  --qf-filter-button: #3a3b3c;
+  --qf-filter-hover: #4e4f50;
+  --qf-filter-line: rgba(255, 255, 255, .15);
+}
+:root :is(.qf-placeholder, .qf-removed-placeholder, .qf-indicator, #qf-fallback-toast) {
+  box-sizing: border-box;
+  background: var(--qf-filter-surface);
+  color: var(--qf-filter-secondary);
+  border: 1px solid var(--qf-filter-line);
+}
+:root :is(.qf-placeholder, .qf-removed-placeholder) {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+:root :is(.qf-placeholder, .qf-removed-placeholder) > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+:root :is(.qf-show-button, .qf-removed-btn) {
+  max-width: 100%;
+  min-height: 30px;
+  font: 600 13px/1.34 "Segoe UI", system-ui, sans-serif;
+  background: var(--qf-filter-button);
+  color: var(--qf-filter-ink);
+  border-color: var(--qf-filter-line);
+  white-space: normal;
+}
+:root :is(.qf-show-button, .qf-removed-btn):hover { background: var(--qf-filter-hover); }
+:root :is(.qf-show-button, .qf-removed-btn):focus-visible { outline: 2px solid #2374e1; outline-offset: 2px; }
+@media (max-width: 480px) {
+  :root .qf-indicator { left: 8px; bottom: 8px; padding: 6px; }
+}
+@media (pointer: coarse) {
+  :root :is(.qf-show-button, .qf-removed-btn) { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root :is(.qf-show-button, .qf-removed-btn, #qf-fallback-toast) { transition: none !important; }
+}
+@media (forced-colors: active) {
+  :root :is(.qf-placeholder, .qf-removed-placeholder, .qf-indicator, #qf-fallback-toast) {
+    background: Canvas; color: CanvasText; border-color: CanvasText;
+  }
+  :root :is(.qf-show-button, .qf-removed-btn) { background: ButtonFace; color: ButtonText; border-color: ButtonText; }
+}

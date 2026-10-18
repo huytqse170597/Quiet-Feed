@@ -1,0 +1,35 @@
+FFmpeg WebAssembly core
+
+ffmpeg-core.js and ffmpeg-core.wasm were copied unchanged from the operator-supplied
+2.9.2_0/ffmpeg directory. No donor extension application bundle is included.
+
+Running this exact core with -L reports FFmpeg 5.1.4, Copyright (c) 2000-2023
+the FFmpeg developers, and GNU LGPL version 2.1 or later. The complete LGPL 2.1
+license is included in COPYING.LGPLv2.1.txt.
+
+Upstream FFmpeg release source:
+https://github.com/FFmpeg/FFmpeg/tree/n5.1.4
+https://ffmpeg.org/releases/ffmpeg-5.1.4.tar.xz
+
+The supplied artifact did not include source for its Emscripten wrapper or build
+scripts. The exact custom wrapper's source provenance remains unknown. These
+files are preserved as supplied, with identities recorded below. The build has
+no GPL enable flag and performs stream copying without transcoding.
+
+SHA-256:
+ffmpeg-core.js   e952162154d821dc90e5e1af4e5391c4490e602fe8e4a192495f80e89a8cc803
+ffmpeg-core.wasm 5ed8fbbd7be5a819821ccc2f3bf33f825d2856185b50ea8d675f39f1a110e18f
+
+Observed build configuration:
+--target-os=none --arch=x86_32 --enable-cross-compile --disable-asm
+--disable-stripping --disable-programs --disable-doc --disable-debug
+--disable-runtime-cpudetect --disable-autodetect --nm=emnm --ar=emar
+--ranlib=emranlib --cc=emcc --cxx=em++ --objcc=emcc --dep-cc=emcc
+--extra-cflags='-O3 -msimd128 -I/opt/include'
+--extra-cxxflags='-O3 -msimd128 -I/opt/include'
+--disable-pthreads --disable-w32threads --disable-os2threads --disable-everything
+--enable-demuxer=mov --enable-muxer=mp4 --enable-decoder=vp9 --enable-decoder=vp8
+--enable-parser=h264 --enable-parser=hevc --enable-parser=av1 --enable-parser=vp9
+--enable-parser=vp8 --enable-parser=aac --enable-parser=opus --enable-parser=vorbis
+--enable-bsf=aac_adtstoasc --enable-bsf=vp9_superframe --enable-bsf=vp9_raw_reorder
+--enable-bsf=null --enable-protocol=file --enable-filter=null --enable-filter=anull

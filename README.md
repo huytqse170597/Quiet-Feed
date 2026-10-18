@@ -22,7 +22,7 @@ Facebook mixes posts from people you follow with reels, advertisements, recommen
 The project is deliberately small and readable:
 
 - Plain HTML, CSS, and JavaScript
-- No framework, bundler, or runtime dependency
+- No framework or bundler; a packaged local WASM engine handles video/audio merging
 - Local settings, local counters, and no Quiet Feed account
 - A primary React-hook filtering path with a DOM-based fallback
 - Accessible controls, keyboard-friendly tabs, and reversible filtering
@@ -72,6 +72,12 @@ The project is deliberately small and readable:
 - Remove birthday reminders
 - Remove popup notifications
 
+### Privacy controls
+
+The **Privacy** tab adds optional controls for read receipts, typing indicators, and story views, adapted from the supplied Unseen 1.13.0 package. All three default to off and use the same local settings and theme as the feed controls. They also run on Messenger; feed filtering and video buttons remain limited to Facebook.
+
+After updating the extension, reload it in your browser's extension manager, enable the controls you want, then use **Reload Facebook and Messenger**. Settings apply live to installed hooks; reloading attaches hooks to modules that were already loaded. Feed pause does not disable privacy controls. Protection is best effort, especially for encrypted chats, mobile layouts, and future Facebook changes. See [implementation evidence, edge cases, and verification](docs/privacy-port.md).
+
 ### Custom filtering
 
 - Add keyword or regex rules in the settings page to hide posts matching any pattern
@@ -79,6 +85,9 @@ The project is deliberately small and readable:
 - Enter `/pattern/` syntax to use a regular expression
 
 ### Quality-of-life features
+
+- **Video downloads:** choose SD, HD, or available higher qualities beside Facebook videos and reels; save audio separately or combine video and audio locally. Toggle **Video download buttons** in the popup/settings. See [video download usage, verification, and limitations](docs/video-port.md).
+- **Linked theme:** choosing Light, Dark, or System uses Facebook's own appearance setter, updating its React theme and saved Facebook preference as well as Quiet Feed.
 
 - Counters for blocked reels, suggestions, sponsored posts, and custom-rule matches — color-coded badge (green = advanced hooks, blue = DOM fallback)
 - One-click **Enable all**, **Disable all**, and **Defaults** actions
@@ -128,15 +137,19 @@ Quiet Feed is designed to work without a remote service.
 - **Local storage:** preferences and counters use `chrome.storage.local`; the undo list uses `chrome.storage.session`.
 - **No analytics:** the project does not include tracking or telemetry code.
 - **No external API:** filtering runs inside the extension and Facebook page.
-- **Narrow host access:** page scripts run only on `www.facebook.com` and `web.facebook.com`.
+- **Narrow host access:** feed scripts run on `www.facebook.com`, `web.facebook.com`, and `m.facebook.com`; privacy hooks also run on `messenger.com` and `www.messenger.com`.
 
 The extension requests:
 
 | Permission                   | Why it is needed                                                                    |
 | ---------------------------- | ----------------------------------------------------------------------------------- |
 | `storage`                    | Save settings, counters, schema version, filter log, and the selected popup tab.    |
+| `downloads`                  | Save video/audio files through browser download dialogs.                           |
+| `https://*.fbcdn.net/*`       | Fetch Facebook video/audio tracks for local merging.                               |
 | `https://www.facebook.com/*` | Run the filter on Facebook pages.                                                   |
 | `https://web.facebook.com/*` | Run the same filter on Facebook's alternate web host.                               |
+| `https://m.facebook.com/*`   | Run the DOM fallback on Facebook's mobile web host.                                 |
+| `https://messenger.com/*`, `https://www.messenger.com/*` | Run optional read-receipt and typing privacy hooks. |
 
 ## Keyboard shortcuts
 
@@ -191,6 +204,7 @@ Changes are saved immediately. If Facebook is already open, Quiet Feed may offer
 
 | Setting                    | Default |
 | -------------------------- | :-----: |
+| Video download buttons     |   On    |
 | Clean mode                 |   Off   |
 | Show status indicator      |   On    |
 | Remove reels               |   On    |

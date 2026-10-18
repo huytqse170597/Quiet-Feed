@@ -10,15 +10,16 @@
 
   --ink: #e4e6eb;
   --text-secondary: #b0b3b8;
-  --muted: #6d7175;
+  --muted: #96999d;
 
   --accent: #2374e1;
   --accent-hover: #1a6dd1;
   --accent-dim: rgba(35, 116, 225, 0.15);
+  --link: #79b0ff;
 
   --success: #42b72a;
   --warning: #f7b928;
-  --error: #e74c3c;
+  --error: #ff8a80;
   --blue: #2374e1;
 
   --line: rgba(255, 255, 255, 0.1);
@@ -44,11 +45,14 @@
     --surface-raised: #e4e6eb;
     --ink: #050505;
     --text-secondary: #65676b;
-    --muted: #8a8d91;
-    --accent: #1877f2;
-    --accent-hover: #166fe5;
+    --muted: #65676b;
+    --accent: #166fe5;
+    --accent-hover: #115bbd;
+    --link: #115bbd;
+    --success: #247a20;
+    --error: #b42318;
     --accent-dim: rgba(24, 119, 242, 0.12);
-    --warning: #e67700;
+    --warning: #985600;
     --blue: #1877f2;
     --line: rgba(0, 0, 0, 0.1);
     --line-soft: rgba(0, 0, 0, 0.06);
@@ -66,13 +70,14 @@
   --surface-raised: #4e4f50;
   --ink: #e4e6eb;
   --text-secondary: #b0b3b8;
-  --muted: #6d7175;
+  --muted: #96999d;
   --accent: #2374e1;
   --accent-hover: #1a6dd1;
   --accent-dim: rgba(35, 116, 225, 0.15);
+  --link: #79b0ff;
   --success: #42b72a;
   --warning: #f7b928;
-  --error: #e74c3c;
+  --error: #ff8a80;
   --blue: #2374e1;
   --line: rgba(255, 255, 255, 0.1);
   --line-soft: rgba(255, 255, 255, 0.06);
@@ -89,13 +94,14 @@
   --surface-raised: #e4e6eb;
   --ink: #050505;
   --text-secondary: #65676b;
-  --muted: #8a8d91;
-  --accent: #1877f2;
-  --accent-hover: #166fe5;
+  --muted: #65676b;
+  --accent: #166fe5;
+  --accent-hover: #115bbd;
+  --link: #115bbd;
+  --success: #247a20;
+  --error: #b42318;
   --accent-dim: rgba(24, 119, 242, 0.12);
-  --success: #42b72a;
-  --warning: #e67700;
-  --error: #e74c3c;
+  --warning: #985600;
   --blue: #1877f2;
   --line: rgba(0, 0, 0, 0.1);
   --line-soft: rgba(0, 0, 0, 0.06);
@@ -144,6 +150,9 @@ a:focus-visible {
 
 .button {
   display: inline-flex;
+  max-width: 100%;
+  justify-content: center;
+  text-align: center;
   align-items: center;
   min-height: 36px;
   padding: 0 16px;
@@ -261,6 +270,11 @@ a:focus-visible {
   background: var(--surface-hover);
 }
 
+.feature-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .feature-row:not([aria-disabled="true"]) {
   cursor: pointer;
 }
@@ -278,6 +292,7 @@ a:focus-visible {
 }
 
 .feature-label {
+  overflow-wrap: anywhere;
   display: block;
   color: var(--ink);
   cursor: pointer;
@@ -286,6 +301,7 @@ a:focus-visible {
 }
 
 .feature-description {
+  overflow-wrap: anywhere;
   margin: 2px 0 0;
   color: var(--text-secondary);
   font-size: 13px;
@@ -387,6 +403,7 @@ a:focus-visible {
 
 .confirmation-dialog__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding: 0 20px 20px;

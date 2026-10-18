@@ -12,6 +12,34 @@
 
   const FEATURES = Object.freeze([
     {
+      key: "hideReadReceipts",
+      label: "Hide read receipts",
+      description: "Try to stop Facebook and Messenger from sending Seen receipts. Encrypted chats and new message formats may not be covered.",
+      group: "privacy",
+      defaultValue: false,
+    },
+    {
+      key: "hideTypingIndicator",
+      label: "Hide typing indicator",
+      description: "Try to stop Facebook and Messenger from sharing when you type. Encrypted chats and new message formats may not be covered.",
+      group: "privacy",
+      defaultValue: false,
+    },
+    {
+      key: "hideStoryViews",
+      label: "Hide story views",
+      description: "Try to stop Facebook from recording story views. Applies to recognized view requests; it cannot undo views already sent.",
+      group: "privacy",
+      defaultValue: false,
+    },
+    {
+      key: "downloadVideos",
+      label: "Video download buttons",
+      description: "Choose SD, HD, or available higher qualities on Facebook videos and reels. Merge video and audio locally.",
+      group: "behavior",
+      defaultValue: true,
+    },
+    {
       key: "cleanMode",
       label: "Clean mode",
       description: "Hide filtered cards completely instead of leaving placeholders.",
@@ -159,10 +187,59 @@
   function isFacebookUrl(url) {
     try {
       const hostname = new URL(url).hostname;
-      return hostname === "www.facebook.com" || hostname === "web.facebook.com";
+      return hostname === "www.facebook.com" || hostname === "web.facebook.com" || hostname === "m.facebook.com";
     } catch {
       return false;
     }
+  }
+
+  function isPrivacyUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && (
+        isFacebookUrl(value) ||
+        url.hostname === "messenger.com" ||
+        url.hostname === "www.messenger.com"
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  // The isolated video UI only needs URL validation, not the MAIN-world video
+  // extraction helper. Keep this in the mandatory shared settings bootstrap.
+  function isMediaUrl(value) {
+    if (typeof value !== "string" || value.length > 16384 || /[\u0000-\u0020\u007f\\]/.test(value)) return false;
+    try {
+      const url = new URL(value);
+      const host = url.hostname.toLowerCase();
+      return url.protocol === "https:" && !url.username && !url.password &&
+        (!url.port || url.port === "443") &&
+        (host === "fbcdn.net" || host.endsWith(".fbcdn.net") ||
+          host === "facebook.com" || host.endsWith(".facebook.com"));
+    } catch { return false; }
+  }
+
+  function videoFilename({ title, author, id, label, kind, date = new Date() } = {}) {
+    const clean = (value, limit) => typeof value === "string" ? Array.from(value.normalize("NFC")
+      .replace(/[\u0000-\u001f\u007f-\u009f<>:"/\\|?*\u202a-\u202e\u2066-\u2069]/g, " ")
+      .replace(/\s+/g, " ").replace(/\.{2,}/g, " ").trim().replace(/^[. ]+|[. ]+$/g, ""))
+      .reduce((text, character) => text.length + character.length <= limit ? text + character : text, "").trim() : "";
+    const name = clean(title, 70);
+    const owner = clean(author, 30);
+    const meaningful = name && !/^(facebook video|video|reel|\d+)$/i.test(name) &&
+      !/^[A-Za-z0-9_-]{60,}(?:\.mp4)?$/i.test(name);
+    const parts = [];
+    if (owner) parts.push(owner);
+    if (meaningful && name.toLocaleLowerCase() !== owner.toLocaleLowerCase()) parts.push(name);
+    if (!parts.length) parts.push(`quietfeed-${date.toISOString().replace("T", "_").replace(/[:.]/g, "-")}`);
+    // Never include signed media URLs or Relay's internal record identifiers.
+    if (typeof id === "string" && /^\d{1,30}$/.test(id)) parts.push(id);
+    const quality = clean(label, 16);
+    if (quality && !/^(current file|video|audio)$/i.test(quality)) parts.push(quality);
+    let stem = parts.join(" - ").replace(/[. ]+$/g, "");
+    if (/^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(stem)) stem = `_${stem}`;
+    return `${stem}.${kind === "audio" ? "m4a" : "mp4"}`;
   }
 
   function createSerialExecutor() {
@@ -207,6 +284,9 @@
     isFeatureKey,
     sanitizeFeatureChanges,
     isFacebookUrl,
+    isPrivacyUrl,
+    isMediaUrl,
+    videoFilename,
     createSerialExecutor,
     createLogger,
     pruneDisconnectedEntries,

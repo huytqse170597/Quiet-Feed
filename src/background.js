@@ -3,6 +3,7 @@
 // Absolute (extension-root) path: resolves regardless of where this worker lives,
 // so a path/base difference can never abort service worker registration.
 importScripts("/src/shared/features.js");
+importScripts("/src/shared/video.js", "/src/video-background.js");
 
 const {
   STORAGE_KEYS,
@@ -170,7 +171,7 @@ function compactNumber(value) {
 
 function getFacebookTabs() {
   return chrome.tabs.query({
-    url: ["https://www.facebook.com/*", "https://web.facebook.com/*"],
+    url: ["https://www.facebook.com/*", "https://web.facebook.com/*", "https://m.facebook.com/*"],
   });
 }
 
@@ -182,6 +183,18 @@ async function reloadFacebookTabs() {
   }
   await Promise.all(tabIds.map((tabId) => chrome.tabs.reload(tabId)));
   return { reloaded: true, count: tabIds.length };
+}
+
+async function reloadPrivacyTabs() {
+  const tabs = await chrome.tabs.query({ url: [
+    "https://www.facebook.com/*", "https://web.facebook.com/*", "https://m.facebook.com/*",
+    "https://www.messenger.com/*", "https://messenger.com/*",
+  ] });
+  const ids = tabs.map((tab) => tab.id).filter(Number.isInteger);
+  if (!ids.length) return { reloaded: false, reason: "Open Facebook or Messenger in a tab first." };
+  const results = await Promise.allSettled(ids.map((id) => chrome.tabs.reload(id)));
+  const count = results.filter((result) => result.status === "fulfilled").length;
+  return { reloaded: count > 0, count, failed: ids.length - count };
 }
 
 async function getFilterHealth() {
@@ -256,6 +269,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleMessage(message, sender) {
   switch (message?.type) {
+    case "QFV_DOWNLOAD":
+      return await QuietFeedDownloads.download(message, sender);
+    case "QFV_TAKE_JOB":
+      return await QuietFeedDownloads.takeJob(message, sender);
+    case "QFV_SAVE_MERGED":
+      return await QuietFeedDownloads.saveMerged(message, sender);
     case "QF_GET_STATE":
       return { ok: true, ...(await getState()) };
     case "QF_SET_FEATURE":
@@ -277,6 +296,8 @@ async function handleMessage(message, sender) {
       return { ok: true, ...(await getFilterHealth()) };
     case "QF_RELOAD_FACEBOOK_TABS":
       return { ok: true, ...(await reloadFacebookTabs()) };
+    case "QF_RELOAD_PRIVACY_TABS":
+      return { ok: true, ...(await reloadPrivacyTabs()) };
     case "QF_OPEN_OPTIONS":
       await chrome.runtime.openOptionsPage();
       return { ok: true };

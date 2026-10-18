@@ -4,7 +4,11 @@
   "version": "2.1.0",
   "description": "No-build source for the Quiet Feed browser extension.",
   "scripts": {
-    "test": "node tests/run-tests.js",
-    "test:browser": "node tests/browser/popup-test-server.js"
+    "test": "node tests/run-tests.js && node tests/runtime-tests.js && node tests/privacy-tests.js && node tests/theme-tests.js && node tests/video-tests.js && node tests/video-integration-tests.js",
+    "test:video-media": "node tests/video-media-test.js",
+    "test:browser": "node tests/browser/popup-test-server.js",
+    "test:popup-sizing": "node tests/browser/popup-sizing-test.js",
+    "test:video-controls": "node tests/browser/video-controls-test.js",
+    "test:styles": "node tests/browser/style-audit.js && node tests/browser/popup-sizing-test.js && node tests/browser/video-controls-test.js"
   }
 }

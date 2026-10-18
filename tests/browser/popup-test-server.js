@@ -16,6 +16,15 @@ const contentTypes = {
 http
   .createServer((request, response) => {
     const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+    if (pathname === "/preview/download.html") {
+      const html = fs.readFileSync(path.join(root, "src/download/download.html"), "utf8")
+        .replace("<head>", '<head>\n<base href="/src/download/">')
+        .replace('<script src="../shared/ui-components.js"></script>',
+          '<script src="/tests/browser/chrome-mock.js"></script>\n<script src="/tests/browser/download-preview.js"></script>\n<script src="../shared/ui-components.js"></script>');
+      response.writeHead(200, { "Content-Type": contentTypes[".html"] });
+      response.end(html);
+      return;
+    }
     const previewPages = {
       "/preview/options.html": path.join(root, "src", "options", "options.html"),
       "/preview/popup.html": path.join(root, "src", "popup", "popup.html"),

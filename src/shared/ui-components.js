@@ -24,6 +24,7 @@
     if (!disabled) {
       row.setAttribute("tabindex", "0");
       row.addEventListener("keydown", (event) => {
+        if (event.target !== row) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           if (!disabled) input.click();
@@ -52,6 +53,18 @@
       tooltip.textContent = feature.description;
       info.setAttribute("aria-describedby", tooltip.id);
       info.append("i", tooltip);
+      // Keep short labels and edge-positioned info buttons from clipping their
+      // descriptions against the popup's viewport.
+      function positionTooltip() {
+        const rect = info.getBoundingClientRect();
+        const width = tooltip.getBoundingClientRect().width;
+        const left = Math.max(12, Math.min(rect.left + rect.width / 2 - width / 2,
+          document.documentElement.clientWidth - width - 12));
+        tooltip.style.left = `${left - rect.left}px`;
+        tooltip.style.transform = "translateY(0)";
+      }
+      info.addEventListener("mouseenter", positionTooltip);
+      info.addEventListener("focus", positionTooltip);
       heading.append(label, info);
       copy.append(heading);
     } else {
@@ -124,6 +137,7 @@
     wrapper.className = "theme-toggle";
     wrapper.setAttribute("role", "group");
     wrapper.setAttribute("aria-label", "Theme");
+    wrapper.title = "Theme for Quiet Feed and Facebook";
 
     const buttons = {};
     function syncPressed(value) {

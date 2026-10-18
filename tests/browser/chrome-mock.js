@@ -50,6 +50,7 @@
       case "QF_GET_FILTER_HEALTH":
         return { ok: true, status: "advanced", label: "Advanced filters active", tabCount: 2 };
       case "QF_RELOAD_FACEBOOK_TABS":
+      case "QF_RELOAD_PRIVACY_TABS":
         return { ok: true, reloaded: true, count: 2 };
       case "QF_OPEN_OPTIONS":
         return { ok: true };
