@@ -5,10 +5,19 @@ import createFFmpegCore from "../../vendor/ffmpeg/ffmpeg-core.js";
 const MAX_BYTES = 256 * 1024 * 1024;
 let total = 0;
 
-async function fetchTrack(url) {
-  const response = await fetch(url, { credentials: "omit", redirect: "error", signal: AbortSignal.timeout(180000) });
-  if (!response.ok) throw new Error(`Media request failed (${response.status})`);
-  if (!response.body) throw new Error("Empty media response");
+async function fetchTrack(url, label) {
+  let response;
+  try {
+    // Facebook's CDN redirects some signed media requests. A previous strict
+    // redirect policy turned those redirects into a misleading
+    // "Failed to fetch"; follow them so the merge can start.
+    response = await fetch(url, { credentials: "omit", redirect: "follow", signal: AbortSignal.timeout(180000) });
+  } catch (error) {
+    const host = (() => { try { return new URL(url).host; } catch { return "unknown host"; } })();
+    throw new Error(`${label} request failed: ${error.name}: ${error.message} (${host})`);
+  }
+  if (!response.ok) throw new Error(`${label} request failed (${response.status})`);
+  if (!response.body) throw new Error(`Empty ${label} response`);
   const reader = response.body.getReader();
   const chunks = [];
   let size = 0;
@@ -21,6 +30,9 @@ async function fetchTrack(url) {
       if (total > MAX_BYTES) throw new Error("This video is too large for local merging (256 MB input limit). Choose SD/HD with sound instead.");
       chunks.push(value);
     }
+  } catch (error) {
+    if (error.message.startsWith("This video is too large")) throw error;
+    throw new Error(`${label} download failed: ${error.name}: ${error.message}`);
   } finally { await reader.cancel().catch(() => {}); }
   const result = new Uint8Array(size);
   let offset = 0;
@@ -31,7 +43,8 @@ async function fetchTrack(url) {
 self.onmessage = async ({ data }) => {
   try {
     // URLs were validated by the background before creating this private job.
-    const [video, audio] = await Promise.all([fetchTrack(data.url), fetchTrack(data.audioUrl)]);
+    self.postMessage({ status: "Fetching video and audio…" });
+    const [video, audio] = await Promise.all([fetchTrack(data.url, "Video"), fetchTrack(data.audioUrl, "Audio")]);
     self.postMessage({ status: "Combining video and audio locally…" });
     const core = await createFFmpegCore({ locateFile: (path) => new URL(`../../vendor/ffmpeg/${path}`, import.meta.url).href });
     core.FS.writeFile("video.mp4", video);

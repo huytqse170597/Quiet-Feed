@@ -2,7 +2,7 @@
   "use strict";
 
   const { STORAGE_KEYS, mergeSettings, pruneDisconnectedEntries } = QuietFeed;
-  const { PHRASES, includesPhrase, classifyFeedUnit, matchesCustomRules } = QuietFeedRules;
+  const { PHRASES, includesPhrase, classifyFeedUnit, matchesCustomRules, isSponsoredLabel } = QuietFeedRules;
 
   const FEED_UNIT_SELECTOR = [
     '[role="article"]',
@@ -34,6 +34,9 @@
   let observer = null;
   let storiesObserver = null;
   let storiesCheckTimer = null;
+  let sponsoredObserver = null;
+  let sponsoredCheckTimer = null;
+  const pendingSponsoredRoots = new Set();
   let hookActive = false;
   let fallbackActive = false;
   let debugMode = false;
@@ -79,9 +82,15 @@
         pausedUntil = Number(changes.quietFeedPausedUntil.newValue) || 0;
         postSettingsToPage();
       }
-      if ((changes[STORAGE_KEYS.settings] || changes.quietFeedCustomRules || changes.quietFeedPausedUntil) && fallbackActive) {
-        restoreAll();
-        scheduleFullScan();
+      if (changes[STORAGE_KEYS.settings] || changes.quietFeedCustomRules || changes.quietFeedPausedUntil) {
+        if (fallbackActive) {
+          restoreAll();
+          scheduleFullScan();
+        } else if (hookActive) {
+          restoreAll();
+          ensureStoriesHidden();
+          ensureSponsoredHidden();
+        }
       }
     });
   }
@@ -99,6 +108,7 @@
       clearTimeout(fallbackTimer);
       stopDomFallback();
       startStoriesSafetyNet();
+      startSponsoredSafetyNet();
       updateIndicator();
       try { chrome.runtime.sendMessage({ type: "QF_SET_FILTER_STATUS", status: "advanced" }).catch(() => {}); } catch (_) {}
       return;
@@ -187,6 +197,108 @@
     processStories(document);
   }
 
+  // Facebook occasionally ships ad widgets that the React hook does not see
+  // (the home right rail is one example). This always-on label watcher hides
+  // the card that owns an exact "Sponsored" / "Được tài trợ" label without
+  // treating the word as a match when it only appears in post body text.
+  function startSponsoredSafetyNet() {
+    if (sponsoredObserver) return;
+    ensureSponsoredHidden();
+    sponsoredObserver = new MutationObserver((records) => {
+      if (!settings?.removeSponsored || isPaused()) return;
+      for (const record of records) {
+        if (record.type === "characterData") {
+          if (record.target.parentElement) pendingSponsoredRoots.add(record.target.parentElement);
+          continue;
+        }
+        record.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement && !node.closest("#qf-indicator, #qf-fallback-toast")) {
+            pendingSponsoredRoots.add(node);
+          }
+        });
+      }
+      if (!pendingSponsoredRoots.size || sponsoredCheckTimer) return;
+      sponsoredCheckTimer = setTimeout(() => {
+        sponsoredCheckTimer = null;
+        ensureSponsoredHidden();
+      }, 250);
+    });
+    sponsoredObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
+
+  function ensureSponsoredHidden() {
+    if (!settings?.removeSponsored || isPaused() || !document.body) {
+      pendingSponsoredRoots.clear();
+      return;
+    }
+    const roots = pendingSponsoredRoots.size ? [...pendingSponsoredRoots] : [document];
+    pendingSponsoredRoots.clear();
+    roots.forEach(processSponsoredLabels);
+  }
+
+  function processSponsoredLabels(root) {
+    if (!settings?.removeSponsored || isPaused()) return;
+    selectWithin(root, "span, a").forEach((element) => {
+      if (
+        !(element instanceof HTMLElement) ||
+        element.firstElementChild ||
+        element.closest("[data-qf-placeholder], .qf-hidden, [data-qf-removed], #qf-indicator, #qf-fallback-toast") ||
+        !isSponsoredLabel(element.textContent)
+      ) {
+        return;
+      }
+      const container = sponsoredContainer(element);
+      if (!container || hiddenElements.has(container)) return;
+      // The React side has already counted and hidden this side-rail ad;
+      // the stylesheet collapses its surrounding section.
+      if (container.querySelector(".qf-hidden-side-ad")) return;
+      if (!isSponsoredHeader(element, container)) return;
+      // When the hook engine is active it owns stats for feed posts, so a
+      // safety-net hide must not double-count the same ad.
+      hideElement(container, hookActive ? null : "sponsored");
+    });
+  }
+
+  function sponsoredContainer(label) {
+    const article = label.closest('[role="article"], article');
+    if (article) return article;
+    const feedUnit = label.closest('.CometFeedUnit, [data-pagelet*="FeedUnit"]');
+    if (feedUnit) return feedUnit;
+    const rail = label.closest('#right_rail_container, [role="complementary"]');
+    if (rail) {
+      const section = label.closest("section");
+      if (section && rail.contains(section)) return section;
+      let node = label;
+      while (node && node.parentElement !== rail) node = node.parentElement;
+      return node && node !== rail ? node : null;
+    }
+    const feed = label.closest('[role="feed"]');
+    if (feed) {
+      let node = label;
+      while (node && node.parentElement !== feed) node = node.parentElement;
+      return node && node !== feed ? node : null;
+    }
+    return label.closest("section");
+  }
+
+  function isSponsoredHeader(label, container) {
+    const labelRect = label.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const nearTop = containerRect.height <= 0 || labelRect.height <= 0 ||
+      labelRect.top <= containerRect.top + containerRect.height * 0.45;
+    if (!nearTop) return false;
+    if (label.closest('a, h1, h2, h3, h4, h5, h6, [role="heading"], [data-ad-rendering-role]')) {
+      return true;
+    }
+    // A right-rail card may use a plain span; the top-of-card check above is
+    // the meaningful signal there.
+    return Boolean(label.closest('#right_rail_container, [role="complementary"]'));
+  }
+
   function stopDomFallback() {
     if (!fallbackActive) return;
     fallbackActive = false;
@@ -253,6 +365,7 @@
   function scanRoot(root) {
     if (isPaused()) return;
     selectWithin(root, FEED_UNIT_SELECTOR).forEach(processFeedUnit);
+    processSponsoredLabels(root);
     processStories(root);
     processRightRail(root);
     processNotifications(root);
@@ -616,6 +729,7 @@
     style.id = "quiet-feed-style";
     style.textContent = [
       ".qf-hidden{display:none!important}",
+      "#right_rail_container section:has(.qf-hidden-side-ad),[role=\"complementary\"] section:has(.qf-hidden-side-ad){display:none!important}",
       ".qf-placeholder{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;padding:10px 14px;border-radius:8px;color:#65676b;background:#fff;border:1px solid rgba(0,0,0,0.08);font:14px/1.34 'Segoe UI',system-ui,sans-serif}",
       "@media(prefers-color-scheme:dark){.qf-placeholder{color:#b0b3b8;background:#242526;border-color:rgba(255,255,255,0.06)}}",
       ".qf-show-button{padding:6px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:20px;background:#f0f2f5;color:#050505;cursor:pointer;font:600 13px/1 'Segoe UI',system-ui,sans-serif;white-space:nowrap;transition:background 100ms ease}",

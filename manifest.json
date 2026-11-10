@@ -32,6 +32,7 @@
       ],
       "js": [
         "src/legacy/facebook-react-hook-runtime.js",
+        "src/relay-reader.js",
         "src/privacy-page.js",
         "src/facebook-theme-page.js"
       ],

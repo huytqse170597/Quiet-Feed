@@ -57,11 +57,18 @@
 
   function normalizeText(value) {
     return String(value || "")
+      .replace(/[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLocaleLowerCase()
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  const SPONSORED_LABELS = new Set(PHRASES.sponsored.map((phrase) => normalizeText(phrase)));
+
+  function isSponsoredLabel(value) {
+    return SPONSORED_LABELS.has(normalizeText(value));
   }
 
   function includesPhrase(text, phrases) {
@@ -133,6 +140,7 @@
   const api = Object.freeze({
     PHRASES,
     normalizeText,
+    isSponsoredLabel,
     includesPhrase,
     classifyFeedUnit,
     matchesCustomRules,

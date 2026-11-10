@@ -4,14 +4,19 @@
   // Register before Facebook defines these modules, using Quiet Feed's runtime.
   const suffix = ".react|quiet-feed-video";
   const targets = {
-    VideoPlayerRelay: (props) => props?.video?.__id,
-    FBReelsMediaHeaderOwnerInfo: (props) => find(props?.storyData?.__id, "^video.id"),
+    VideoPlayerRelay: (props) => idOf(props?.video),
+    FBReelsMediaHeaderOwnerInfo: (props) =>
+      idOf(find(props?.storyData, "^video")) || find(props?.storyData?.__id, "^video.id"),
     CometVideoUnificationUFIReactActionRenderer: (props) =>
-      find(props?.renderer?.__id, "^video.id") ||
-      find(props?.renderer?.__id, "^short_form_video_context{$1}.^video.id", {
+      idOf(find(props?.renderer, "^video")) ||
+      idOf(find(props?.renderer, "^short_form_video_context{$1}.^video", {
         $1: { location: "fb_shorts_video_deep_dive" },
-      }) || find(props?.renderer?.__id, "^story.^video.id"),
+      })) || idOf(find(props?.renderer, "^story.^video")),
   };
+
+  function idOf(record) {
+    return record && typeof record === "object" ? record.__id || record.id : record;
+  }
 
   function find(id, path, args) {
     try { return id ? window.___sf(id, path, args) : undefined; } catch { return undefined; }

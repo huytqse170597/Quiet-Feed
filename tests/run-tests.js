@@ -63,6 +63,13 @@ test("normalizes Vietnamese accents", () => {
   assert.equal(rules.normalizeText("Được tài trợ"), "đuoc tai tro");
 });
 
+test("ignores invisible characters and recognizes exact ad labels", () => {
+  assert.equal(rules.normalizeText("Được tài trợ\u200b"), "đuoc tai tro");
+  assert.equal(rules.isSponsoredLabel("Được tài trợ\u200b"), true);
+  assert.equal(rules.isSponsoredLabel("Sponsored"), true);
+  assert.equal(rules.isSponsoredLabel("Our sponsored event"), false);
+});
+
 test("classifies English sponsored posts", () => {
   assert.equal(
     rules.classifyFeedUnit(
@@ -175,6 +182,14 @@ test("all client message types have background handlers", () => {
     [...background.matchAll(/case\s+["'](QF[V]?_[A-Z_]+)["']/g)].map((match) => match[1]),
   );
   for (const type of sent) assert.equal(handled.has(type), true, `No handler for ${type}`);
+});
+
+test("video merge follows Facebook CDN redirects", () => {
+  const worker = fs.readFileSync(path.join(root, "src", "download", "merge-worker.js"), "utf8");
+  // Signed FB CDN URLs redirect; Chrome turns `redirect: "error"` into a
+  // misleading "Failed to fetch" before the merge can start.
+  assert.match(worker, /redirect:\s*["']follow["']/);
+  assert.doesNotMatch(worker, /redirect:\s*["']error["']/);
 });
 
 test("custom rules apply in the React hook engine, not only the DOM fallback", () => {

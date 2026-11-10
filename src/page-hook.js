@@ -343,7 +343,7 @@
           ),
       React.createElement(
         "div",
-        { style: { position: "relative" } },
+        { className: "qf-removed-content", "data-qf-removed": "true", style: { position: "relative" } },
         React.createElement(
           "div",
           { style: revealed ? undefined : HIDDEN_CONTENT_STYLE },
@@ -414,7 +414,7 @@
     const style = document.createElement("style");
     style.id = "quiet-feed-page-hook-style";
     style.textContent = [
-      ".qf-home-right-rail:has(.qf-hidden-side-ad){display:none!important}",
+      "#right_rail_container section:has(.qf-hidden-side-ad),[role=\"complementary\"] section:has(.qf-hidden-side-ad),.qf-home-right-rail:has(.qf-hidden-side-ad){display:none!important}",
       ".qf-removed-placeholder{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:8px;margin:8px 0;color:#65676b;background:#fff;border:1px solid rgba(0,0,0,0.08);font:14px/1.34 'Segoe UI',system-ui,sans-serif}",
       "@media(prefers-color-scheme:dark){.qf-removed-placeholder{color:#b0b3b8;background:#242526;border-color:rgba(255,255,255,0.06)}}",
       ".qf-removed-btn{padding:6px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:20px;background:#f0f2f5;color:#050505;cursor:pointer;font:600 13px/1 'Segoe UI',system-ui,sans-serif;white-space:nowrap}",
